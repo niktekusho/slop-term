@@ -28,12 +28,13 @@ A v1 spec for a personal, cross-platform (Windows + macOS) GUI SSH client with u
 - [Credential provider interface](issues/08-credential-provider-interface.md): every provider has `read`, `write` and `delete`, and any of them can refuse with a reason. TPM is read-only in v1. A reference is `{provider, entry, kind}`. The app reads secrets on every connect with no cache, and asks the user only when there's no reference or a read or auth fails. TPM's HMAC keys go in the keychain and its URL in per-machine settings. Attaching a TPM entry copies its username, and a later mismatch blocks the connect.
 - [Choose the stack](issues/09-choose-stack.md): Electron 44 with React + TypeScript, xterm.js 6 (1,000-line scrollback by default), `ssh2`, `node-pty`, `@napi-rs/keyring` and `ssh-config`. The whole back end runs in one `utilityProcess` and talks to the UI only by IPC. Profiling (inspectors, per-process metrics, Chrome traces) is in from the first build. Electron Forge with Vite, npm, no installer. Tauri used about 40 MB less at 5 full Tabs, not enough to justify a Rust back end now.
 - [How MobaXterm sessions map onto slop-term](issues/10-mobaxterm-import-mapping.md): the import shows a preview first, and the user can edit each alias there. The alias is the session name, slugified. Existing aliases are never overwritten, and hosts identical to existing ones start unticked. Folders map to Sidecar folders. `.ppk` keys, jump hosts and login commands are dropped and flagged. WSL sessions become local shell sessions, and other non-SSH types are skipped.
+- [Main window layout](issues/11-ui-layout-prototype.md): the tree is a fixed left column, and each open Tab is listed in it under its Saved session, with no Tab strip. The SFTP pane sits right of the terminal and collapses for the whole window. Profiling opens as a panel under the terminal.
 
 ## Not yet specified
 
 - SFTP pane behaviour: does it follow the terminal's current folder (MobaXterm does), how uploads and downloads show progress, drag and drop to and from the OS. How the app spots `ssh <host>` typed in a local shell Tab and authenticates its own SFTP connection to that host.
 - ProxyJump / bastion hosts: the user is unsure they need it. `ssh2` doesn't read `ProxyJump`, so supporting it means the app chains the connections itself. That's tested and works, but it's extra code.
-- Keyboard shortcuts, themes and fonts.
+- Keyboard shortcuts, themes and fonts. With no Tab strip ([Main window layout](issues/11-ui-layout-prototype.md)), this includes how to move between Tabs from the keyboard.
 
 ## Out of scope
 
