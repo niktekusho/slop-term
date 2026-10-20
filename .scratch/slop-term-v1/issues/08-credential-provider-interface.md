@@ -34,3 +34,5 @@ Decided with the user on 2026-10-19.
 Out of scope for v1: creating Saved sessions from TPM entries, showing or copying a secret inside the app, and TPM writes.
 
 Glossary: "Credential reference" now includes the secret's kind, at most one per Saved session, and that several Saved sessions can point at the same entry.
+
+Correction (2026-10-20, from "SFTP pane behaviour"): point 6 changes. A password the user typed is held in memory for its Tab's lifetime, so the SFTP pane's second connection for transfers can log in without asking again. Secrets read from a provider are still never cached.
