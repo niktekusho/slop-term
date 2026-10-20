@@ -33,10 +33,6 @@ A v1 spec for a personal, cross-platform (Windows + macOS) GUI SSH client with u
 
 ## Not yet specified
 
-- SFTP pane behaviour: does it follow the terminal's current folder (MobaXterm does), how uploads and downloads show progress, drag and drop to and from the OS. How the app spots `ssh <host>` typed in a local shell Tab and authenticates its own SFTP connection to that host.
-- ProxyJump / bastion hosts: the user is unsure they need it. `ssh2` doesn't read `ProxyJump`, so supporting it means the app chains the connections itself. That's tested and works, but it's extra code.
-- Keyboard shortcuts, themes and fonts. With no Tab strip ([Main window layout](issues/11-ui-layout-prototype.md)), this includes how to move between Tabs from the keyboard.
-
 ## Out of scope
 
 - SSH tunnels / port forwarding: dropped until the user needs them.
