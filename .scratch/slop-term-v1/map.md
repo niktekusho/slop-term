@@ -32,6 +32,7 @@ A v1 spec for a personal, cross-platform (Windows + macOS) GUI SSH client with u
 - [Local shell sessions](issues/12-local-shell-sessions.md): local shells are Saved sessions in the same tree, stored in the Sidecar file, with a shell kind, WSL distro, start folder and command. Names follow the alias rules. Detected shells open as unsaved Tabs in an "Unsaved" group. A session whose shell this machine lacks shows greyed out. MobaXterm WSL sessions import with the default distro.
 - [SFTP pane behaviour](issues/13-sftp-pane-behaviour.md): the pane browses on the Tab's connection and transfers on a second one, follows the terminal folder through OSC 7, and shows hidden files. Uploads queue per Tab and ask on conflicts. Files drag in but not out. Double-click opens a file in a configured editor and uploads on save, after checking the remote copy didn't change.
 - [Can SFTP pane transfers use rsync?](issues/17-rsync-transfers.md): no. No JavaScript rsync exists, Windows has no rsync binary, and the remote host needs one too. rsync only wins on small changes to big files.
+- [Can a KeePass database be a Credential provider?](issues/19-keepass-provider.md): yes, through KeePassXC's browser-integration protocol on its local socket. KeePassXC unlocks and writes, so the app never holds the master password. Reading the `.kdbx` with `kdbxweb` is the fallback.
 
 ## Not yet specified
 
