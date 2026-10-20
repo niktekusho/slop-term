@@ -11,7 +11,7 @@ A v1 spec for a personal, cross-platform (Windows + macOS) GUI SSH client with u
 - Personal tool for one user. No installers, auto-update, telemetry or onboarding in v1.
 - v1 features: SSH terminal with tabs, Saved-session tree with folders, SFTP pane in the same window as the terminal (it also opens for `ssh <host>` typed in a local shell Tab), local shells (PowerShell, WSL, cmd, zsh), import from MobaXterm.
 - Saved sessions live in standard OpenSSH config plus a Sidecar file (see "What goes in SSH config vs the Sidecar file"). The user syncs the app's files between machines with a tool of their choice.
-- Secrets come from Credential providers, which can both read and write. v1 has two: the OS keychain (Windows Credential Manager, macOS Keychain) and Team Password Manager at https://tpm.gpi.it/index.php. A provider may refuse writes. Adding a provider is a code change.
+- Secrets come from Credential providers, which can both read and write. v1 has three: the OS keychain (Windows Credential Manager, macOS Keychain), Team Password Manager at https://tpm.gpi.it/index.php, and a KeePass database the app reads directly (see "Can a KeePass database be a Credential provider?"). A provider may refuse writes. Adding a provider is a code change.
 - Stack: soft preference for TypeScript. The user used Electron 5+ years ago and is open to Electrobun if it's worth it.
 - Vocabulary is in `GLOSSARY.md` at the repo root. Use its terms (Saved session, Tab, SFTP pane, SSH config, Managed config, Hand-written host, Sidecar file, Credential provider, Credential reference).
 - Every session should load the `domain-modeling` skill when a term moves.
