@@ -34,6 +34,7 @@ A v1 spec for a personal, cross-platform (Windows + macOS) GUI SSH client with u
 - [Can SFTP pane transfers use rsync?](issues/17-rsync-transfers.md): no. No JavaScript rsync exists, Windows has no rsync binary, and the remote host needs one too. rsync only wins on small changes to big files.
 - [Can a KeePass database be a Credential provider?](issues/19-keepass-provider.md): yes, through KeePassXC's browser-integration protocol on its local socket. KeePassXC unlocks and writes, so the app never holds the master password. Reading the `.kdbx` with `kdbxweb` is the fallback.
 - [SFTP pane for `ssh <host>` typed in a local shell Tab](issues/14-sftp-for-typed-ssh.md): on Enter, the app looks for an `ssh` child of the shell and resolves its arguments with `ssh -G`. The pane logs in a second time, as MobaXterm does, and connects on its own unless it has to ask for a password. WSL Tabs get only a "Browse files of..." picker. A chained `ssh` leaves the pane on the first host.
+- [ProxyJump in v1](issues/15-proxyjump.md): out of v1, since no host needs one. A Saved session that `ssh -G` resolves to a jump host fails to connect with a clear message. The typed-`ssh` pane and the MobaXterm import keep their earlier behaviour.
 
 ## Not yet specified
 
@@ -54,3 +55,4 @@ A v1 spec for a personal, cross-platform (Windows + macOS) GUI SSH client with u
 - A native Rust rewrite ([Choose the stack](issues/09-choose-stack.md)): a possible step after the v1 features are in. The IPC-only back end keeps it possible.
 - Built-in Docker integration, meaning listing containers and browsing their files ([How MobaXterm sessions map onto slop-term](issues/10-mobaxterm-import-mapping.md)): a local shell session that runs `docker exec` covers the user's need.
 - rsync transfers ([Can SFTP pane transfers use rsync?](issues/17-rsync-transfers.md)): no JavaScript rsync exists and Windows lacks the binary. A later optional mode for big files is possible.
+- Jump hosts / `ProxyJump` chaining ([ProxyJump in v1](issues/15-proxyjump.md)): the user has no host that needs one. Returns only as a new effort.
