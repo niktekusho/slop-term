@@ -17,7 +17,7 @@ v1 is an Electron 44 app with a React + TypeScript UI and a TypeScript back end.
 2. Terminal: xterm.js 6 (`@xterm/xterm`) with the `fit` addon. Add other addons when a feature needs them.
 3. Scrollback: 1,000 lines per Tab by default (about 3.8 MB for a full Tab), and the user can change it. Where the setting lives belongs to "Keyboard shortcuts, themes and fonts".
 4. SSH and SFTP: `ssh2` 1.17.0. Electron uses BoringSSL, so `chacha20-poly1305` is unavailable. AES-GCM and AES-CTR work.
-5. Local shells: `node-pty` 1.1.0, using ConPTY on Windows. Each shell costs about 14 MB private bytes.
+5. Local shells: `node-pty` 1.2.0-beta.15, pinned exactly, using ConPTY on Windows. 1.1.0, npm's `latest`, ships the macOS `spawn-helper` without the execute bit (microsoft/node-pty#919). Each shell costs about 14 MB private bytes.
 6. SSH config: `ssh-config` 5.3.0.
 7. Keychain: `@napi-rs/keyring` (from "Electron vs Electrobun vs Tauri for a TypeScript SSH/SFTP client").
 8. Processes: the whole back end (`ssh2`, `node-pty`, keychain, config files) runs in one Electron `utilityProcess` from the start. The main process only manages windows and relays messages. The UI talks to the back end only by IPC messages, so a later Rust back end can replace it. Worker threads are not used for `node-pty`, because its README says it is not thread safe. Add worker threads only for CPU-heavy work that shows up later.
@@ -34,3 +34,5 @@ The first build step runs the test scripts from "Electron vs Electrobun vs Tauri
 Correction to "Electron vs Electrobun vs Tauri for a TypeScript SSH/SFTP client": `node-pty` interactive shells do not work on Bun. Under Electrobun 2.0.4 (Bun 1.4.0) PowerShell exits after about 1 second. Under Bun 1.4.3 output arrives only when the shell exits. The earlier test ran only one-shot commands.
 
 Memory measurements (Electron, Electrobun, Tauri, MobaXterm): [research/stack-memory.md](../research/stack-memory.md)
+
+Addition (2026-10-21): the back end also works on macOS 15 arm64 inside an Electron 44 `utilityProcess`. `node-pty` 1.1.0 fails there because npm installs `spawn-helper` without the execute bit, so the stack pins 1.2.0-beta.15, which ships it executable. The beta is untested on Windows. A packaged build and keychain prompts after a rebuild are still untested: [research/stack-macos.md](../research/stack-macos.md)
