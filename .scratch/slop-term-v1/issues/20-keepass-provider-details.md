@@ -27,3 +27,5 @@ Decided with the user on 2026-10-21. The user runs KeeWeb, not KeePassXC, and ke
 8. To attach an entry the user searches. The search box matches title, username, URL and group across every group of every unlocked database, skipping the Recycle Bin. Each locked database shows one "Unlock `<name>`" row. Attaching copies the entry's username into `User`, and a later mismatch blocks the connect with the same message and "Use `bob`" button as TPM. An entry with no username skips the check.
 
 Out of scope for v1: syncing KeePass groups with the app's folders, and key files and YubiKey.
+
+Correction (2026-10-21, from "Saving passwords typed for `ssh <host>`" point 10): in point 6, the app deletes a KeePass entry only when the user ticks "Also delete the saved secret" while deleting the last Saved session that points at it. The entry goes to the Recycle Bin when the database has one.

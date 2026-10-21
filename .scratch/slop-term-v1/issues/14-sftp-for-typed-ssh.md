@@ -27,3 +27,5 @@ Decided with the user on 2026-10-21.
 10. When `ssh` exits: the pane closes its connections and shows the hint again. Running transfers finish. Editor-sync saves wait as "waiting for connection" and go out after the remote-change check if the user runs `ssh` to the same host again in that Tab. The typed secret is dropped.
 
 Rejected: parsing typed input (misses aliases, history and scripts), relying on the remote's OSC 7 hostname alone, ControlMaster (Windows OpenSSH doesn't support it), and `SSH_ASKPASS` capture for v1 (moved to the "saving typed passwords" note in Not yet specified).
+
+Correction (2026-10-21, from "Saving passwords typed for `ssh <host>`"): point 4's "no save option" is replaced. The pane's prompt offers "Save to", with keychain as the default. Point 6 gains a fallback: if no alias matches, the app matches a Saved session on the resolved `HostName`, `Port` and `User`.

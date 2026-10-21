@@ -38,3 +38,7 @@ Glossary: "Credential reference" now includes the secret's kind, at most one per
 Correction (2026-10-20, from "SFTP pane behaviour"): point 6 changes. A password the user typed is held in memory for its Tab's lifetime, so the SFTP pane's second connection for transfers can log in without asking again. Secrets read from a provider are still never cached.
 
 Correction (2026-10-21, from "KeePass provider details"): point 6 has a second exception. An unlocked KeePass database stays in memory until the app quits, the OS sleeps, the screen locks or the user locks it. `provider` can also be `keepass`, with `entry` set to `<database name>/<uuid>`.
+
+Correction (2026-10-21, from "Saving passwords typed for `ssh <host>`"): in point 5, keychain is the default on every "Save to" choice.
+
+Correction (2026-10-21, from "Saving passwords typed for `ssh <host>`" point 10): in point 4, the app no longer deletes a keychain entry on its own. Deleting the last Saved session that points at an entry asks, with an unticked checkbox, whether to delete the secret too.
