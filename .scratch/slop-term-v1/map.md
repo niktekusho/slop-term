@@ -33,8 +33,11 @@ A v1 spec for a personal, cross-platform (Windows + macOS) GUI SSH client with u
 - [SFTP pane behaviour](issues/13-sftp-pane-behaviour.md): the pane browses on the Tab's connection and transfers on a second one, follows the terminal folder through OSC 7, and shows hidden files. Uploads queue per Tab and ask on conflicts. Files drag in but not out. Double-click opens a file in a configured editor and uploads on save, after checking the remote copy didn't change.
 - [Can SFTP pane transfers use rsync?](issues/17-rsync-transfers.md): no. No JavaScript rsync exists, Windows has no rsync binary, and the remote host needs one too. rsync only wins on small changes to big files.
 - [Can a KeePass database be a Credential provider?](issues/19-keepass-provider.md): yes, through KeePassXC's browser-integration protocol on its local socket. KeePassXC unlocks and writes, so the app never holds the master password. Reading the `.kdbx` with `kdbxweb` is the fallback.
+- [SFTP pane for `ssh <host>` typed in a local shell Tab](issues/14-sftp-for-typed-ssh.md): on Enter, the app looks for an `ssh` child of the shell and resolves its arguments with `ssh -G`. The pane logs in a second time, as MobaXterm does, and connects on its own unless it has to ask for a password. WSL Tabs get only a "Browse files of..." picker. A chained `ssh` leaves the pane on the first host.
 
 ## Not yet specified
+
+- Saving typed passwords for later. Today a password typed for a host with no Saved session (from "SFTP pane for `ssh <host>` typed in a local shell Tab") lives only in memory. The user wants a safe place to keep it, ideally the KeePass database once "KeePass provider details" settles whether that provider writes. A second idea is to suggest creating a key for the host. Many of the user's logins are shared accounts used by other teams, so adding a key to that account's `authorized_keys` isn't always acceptable. The suggestion needs a way to skip it per host. A way to capture the password: set `SSH_ASKPASS` with `SSH_ASKPASS_REQUIRE=force` in the local shells the app starts, so `ssh` prompts go to an app dialog. This was tested on Windows OpenSSH 9.5p2 (`research/mobaxterm-typed-ssh-browser.md`). It costs a helper program, and every prompt leaves the terminal, including `git` passphrases.
 
 ## Out of scope
 

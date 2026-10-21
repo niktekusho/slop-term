@@ -28,3 +28,5 @@ Decided with the user on 2026-10-20.
 Changes "Credential provider interface": a password the user typed is held in memory for its Tab's lifetime (point 2), and transfers log in a second time (point 1).
 
 Out of scope: rsync transfers, from "Can SFTP pane transfers use rsync?".
+
+Addition (2026-10-21, from "SFTP pane for `ssh <host>` typed in a local shell Tab"): when OSC 7 reports a hostname different from the first one seen on the Tab, the user ran `ssh` again from the remote host. The pane stays on its host, stops following the folder and shows "Terminal is on db1. This pane shows web1." Following resumes when the hostname matches again.
