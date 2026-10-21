@@ -48,3 +48,5 @@ Decided with the user on 2026-10-21, from a prototype of palettes, fonts, Sessio
 Rejected: a frame round the terminal, a stripe on the header, the tint alone, and the tree dot alone. The other palettes tried were One Dark, Tomorrow Night, Campbell and Catppuccin Mocha for dark, and One Light, Tomorrow, Solarized Light and Catppuccin Latte for light. Cascadia Mono was the other font.
 
 Prototype: `.scratch/slop-term-v1/prototypes/terminal-look.html` on the local branch `prototype/terminal-look` (commit 41f56ef). It is never merged.
+
+Correction (2026-10-21, from "SFTP pane look"): point 6's header bar spans the terminal and the SFTP pane, and the tint covers the pane's background too.

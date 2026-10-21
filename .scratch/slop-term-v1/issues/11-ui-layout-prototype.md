@@ -25,3 +25,5 @@ Decided with the user on 2026-10-20, from a prototype of three layouts. The user
 Rejected: a MobaXterm-style sidebar that switches between the tree and the SFTP pane (A), and a slide-over tree drawer with an SFTP pane below each terminal (B).
 
 Prototype: `.scratch/slop-term-v1/prototypes/main-window-layout.html` on the local branch `prototype/main-window-layout` (commit d0c0ad1). It is never merged.
+
+Correction (2026-10-21, from "SFTP pane look"): point 3's header bar spans the full window width, over the terminal and the SFTP pane.

@@ -44,3 +44,5 @@ Decided with the user on 2026-10-21. The user types on an Italian layout on both
 11. While a detected `ssh` child runs in a local shell Tab ("SFTP pane for `ssh <host>` typed in a local shell Tab"), the Tab shows the Session colour of the Saved session that the alias matches.
 
 Out of v1: smart Ctrl+C (copy when text is selected, otherwise send Ctrl+C). The user wants it as an option after v1.
+
+Addition (2026-10-21, from "SFTP pane look"): while the SFTP pane's file list has focus, Enter opens, F2 renames, Delete or Cmd+Backspace deletes, Backspace goes up a folder, Ctrl+A or Cmd+A selects all, and F5 or Cmd+R refreshes. Point 1 holds, because these keys never reach the pane while the terminal has focus.
