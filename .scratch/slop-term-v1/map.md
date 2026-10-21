@@ -13,7 +13,7 @@ A v1 spec for a personal, cross-platform (Windows + macOS) GUI SSH client with u
 - Saved sessions live in standard OpenSSH config plus a Sidecar file (see "What goes in SSH config vs the Sidecar file"). The user syncs the app's files between machines with a tool of their choice.
 - Secrets come from Credential providers, which can both read and write. v1 has three: the OS keychain (Windows Credential Manager, macOS Keychain), Team Password Manager at https://tpm.gpi.it/index.php, and a KeePass database the app reads directly (see "Can a KeePass database be a Credential provider?"). A provider may refuse writes. Adding a provider is a code change.
 - Stack: soft preference for TypeScript. The user used Electron 5+ years ago and is open to Electrobun if it's worth it.
-- Vocabulary is in `GLOSSARY.md` at the repo root. Use its terms (Saved session, Tab, SFTP pane, SSH config, Managed config, Hand-written host, Sidecar file, Credential provider, Credential reference).
+- Vocabulary is in `GLOSSARY.md` at the repo root. Use its terms (Saved session, Tab, SFTP pane, SSH config, Managed config, Hand-written host, Sidecar file, Credential provider, Credential reference, Session colour).
 - Every session should load the `domain-modeling` skill when a term moves.
 
 ## Decisions so far
@@ -35,6 +35,7 @@ A v1 spec for a personal, cross-platform (Windows + macOS) GUI SSH client with u
 - [Can a KeePass database be a Credential provider?](issues/19-keepass-provider.md): yes, through KeePassXC's browser-integration protocol on its local socket. KeePassXC unlocks and writes, so the app never holds the master password. Reading the `.kdbx` with `kdbxweb` is the fallback.
 - [SFTP pane for `ssh <host>` typed in a local shell Tab](issues/14-sftp-for-typed-ssh.md): on Enter, the app looks for an `ssh` child of the shell and resolves its arguments with `ssh -G`. The pane logs in a second time, as MobaXterm does, and connects on its own unless it has to ask for a password. WSL Tabs get only a "Browse files of..." picker. A chained `ssh` leaves the pane on the first host.
 - [ProxyJump in v1](issues/15-proxyjump.md): out of v1, since no host needs one. A Saved session that `ssh -G` resolves to a jump host fails to connect with a clear message. The typed-`ssh` pane and the MobaXterm import keep their earlier behaviour.
+- [Keyboard shortcuts, themes and fonts](issues/16-shortcuts-themes-fonts.md): fixed shortcuts on Ctrl+Shift (Windows) and Cmd (macOS, after iTerm2), so plain Ctrl keys reach the shell. Tabs cycle in tree order. Multi-line paste always asks. Theme follows the OS, the font is bundled, and both live in per-machine `settings.json`. A Saved session can have a Session colour from a curated list, imported from MobaXterm tab colours.
 
 ## Not yet specified
 
@@ -56,3 +57,4 @@ A v1 spec for a personal, cross-platform (Windows + macOS) GUI SSH client with u
 - Built-in Docker integration, meaning listing containers and browsing their files ([How MobaXterm sessions map onto slop-term](issues/10-mobaxterm-import-mapping.md)): a local shell session that runs `docker exec` covers the user's need.
 - rsync transfers ([Can SFTP pane transfers use rsync?](issues/17-rsync-transfers.md)): no JavaScript rsync exists and Windows lacks the binary. A later optional mode for big files is possible.
 - Jump hosts / `ProxyJump` chaining ([ProxyJump in v1](issues/15-proxyjump.md)): the user has no host that needs one. Returns only as a new effort.
+- Smart Ctrl+C, which copies when text is selected and otherwise sends Ctrl+C ([Keyboard shortcuts, themes and fonts](issues/16-shortcuts-themes-fonts.md)): a stray selection would swallow an interrupt. The user wants it as an option after v1.
