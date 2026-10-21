@@ -7,7 +7,7 @@
 **Session colour**: An optional colour, picked from a fixed list, that the user gives a Saved session to recognise it at a glance, for example red for production hosts. Its Tabs show it. It is only a visual tag and changes nothing about how the session behaves.
 _Avoid_: tab colour, sensitive flag
 
-**Tab**: A live connection or shell opened from a Saved session, or an unsaved local shell picked from the shells this machine has. One Saved session can have several Tabs open at once.
+**Tab**: A connection or shell opened from a Saved session, or an unsaved local shell picked from the shells this machine has. One Saved session can have several Tabs open at once. A Tab stays open after its connection drops or its shell exits, until the user reconnects or closes it.
 
 **SFTP pane**: The file browser beside a Tab, in the same window, showing the files of the remote host that Tab is connected to. It belongs to the Tab, so a local shell Tab running `ssh` can have one too.
 _Avoid_: file browser, SSH-browser, SFTP browser

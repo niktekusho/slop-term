@@ -36,6 +36,7 @@ A v1 spec for a personal, cross-platform (Windows + macOS) GUI SSH client with u
 - [SFTP pane for `ssh <host>` typed in a local shell Tab](issues/14-sftp-for-typed-ssh.md): on Enter, the app looks for an `ssh` child of the shell and resolves its arguments with `ssh -G`. The pane logs in a second time, as MobaXterm does, and connects on its own unless it has to ask for a password. WSL Tabs get only a "Browse files of..." picker. A chained `ssh` leaves the pane on the first host.
 - [ProxyJump in v1](issues/15-proxyjump.md): out of v1, since no host needs one. A Saved session that `ssh -G` resolves to a jump host fails to connect with a clear message. The typed-`ssh` pane and the MobaXterm import keep their earlier behaviour.
 - [Keyboard shortcuts, themes and fonts](issues/16-shortcuts-themes-fonts.md): fixed shortcuts on Ctrl+Shift (Windows) and Cmd (macOS, after iTerm2), so plain Ctrl keys reach the shell. Tabs cycle in tree order. Multi-line paste always asks. Theme follows the OS, the font is bundled, and both live in per-machine `settings.json`. A Saved session can have a Session colour from a curated list, imported from MobaXterm tab colours.
+- [Tab disconnect and reconnect](issues/18-tab-reconnect.md): keepalives every 15 s at most (or `ServerAliveInterval` if shorter), 3 misses, and a check on wake. Reconnect is manual (R or a button) and keeps the old scrollback above a divider. A clean shell exit closes the Tab, other exits keep it open. A reconnect reads secrets and the Saved session afresh.
 
 ## Not yet specified
 
