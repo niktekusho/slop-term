@@ -36,3 +36,5 @@ Out of scope for v1: creating Saved sessions from TPM entries, showing or copyin
 Glossary: "Credential reference" now includes the secret's kind, at most one per Saved session, and that several Saved sessions can point at the same entry.
 
 Correction (2026-10-20, from "SFTP pane behaviour"): point 6 changes. A password the user typed is held in memory for its Tab's lifetime, so the SFTP pane's second connection for transfers can log in without asking again. Secrets read from a provider are still never cached.
+
+Correction (2026-10-21, from "KeePass provider details"): point 6 has a second exception. An unlocked KeePass database stays in memory until the app quits, the OS sleeps, the screen locks or the user locks it. `provider` can also be `keepass`, with `entry` set to `<database name>/<uuid>`.
