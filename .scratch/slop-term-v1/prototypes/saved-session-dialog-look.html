@@ -1,0 +1,980 @@
+<!doctype html>
+<!--
+  PROTOTYPE, throwaway. Answers "Saved session dialog look" (.scratch/slop-term-v1/issues/27-saved-session-dialog-look.md).
+  Four layouts of the SSH Saved session dialog, switchable with ?variant=A|B|C|D, the bar at the bottom, or the arrow keys.
+  The bar also sets how a Local shell session's form shows (inside the same dialog, or its own small one), the Test outcome and the theme.
+  Right-click tree rows for their menus, use the New button, or pick a scene in the bar. Fake data, nothing is written to disk.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Saved session dialog</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&display=swap">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/htm@3.1.1/dist/htm.umd.js"></script>
+<style>
+  :root, :root[data-theme=dark] {
+    --canvas:#0d1117; --panel:#161b22; --inset:#010409; --raised:#21262d; --line:#30363d; --fg:#e6edf3; --muted:#7d8590;
+    --accent:#2f81f7; --danger:#f85149; --ok:#3fb950; --warn:#d29922; --ssh:#39c5cf; --local:#d29922;
+    --sel:#2f81f733; --hover:#b1bac41f; --shadow:0 12px 32px #010409cc;
+    --c-Red:#e5484d; --c-Orange:#f76b15; --c-Yellow:#f5d90a; --c-Green:#46a758; --c-Blue:#3e8bff; --c-Purple:#a06cf0; --c-Pink:#e5469f; --c-Grey:#8b8d98;
+  }
+  :root[data-theme=light] {
+    --canvas:#ffffff; --panel:#f6f8fa; --inset:#f6f8fa; --raised:#ffffff; --line:#d0d7de; --fg:#1f2328; --muted:#656d76;
+    --accent:#0969da; --danger:#cf222e; --ok:#1a7f37; --warn:#9a6700; --ssh:#1b7c83; --local:#9a6700;
+    --sel:#0969da24; --hover:#d0d7de66; --shadow:0 12px 32px #8c959f66;
+    --c-Red:#ce2c31; --c-Orange:#c2490c; --c-Yellow:#946800; --c-Green:#2a7e3b; --c-Blue:#1f5fd6; --c-Purple:#7a3fc6; --c-Pink:#c0237f; --c-Grey:#60646c;
+  }
+  * { box-sizing:border-box; }
+  html, body, #root { margin:0; height:100%; background:var(--canvas); color:var(--fg); font:13px/1.4 system-ui, "Segoe UI", sans-serif; }
+  .mono, code, pre, textarea.mono { font-family:"JetBrains Mono", Consolas, monospace; font-size:12px; }
+  button { font:inherit; color:inherit; background:var(--raised); border:1px solid var(--line); border-radius:6px; padding:3px 10px; cursor:pointer; }
+  button:hover:not(:disabled) { background:var(--hover); }
+  button:disabled { opacity:.45; cursor:default; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.danger { background:var(--danger); border-color:var(--danger); color:#fff; }
+  a { color:var(--accent); cursor:pointer; }
+  .in { font:inherit; color:var(--fg); background:var(--canvas); border:1px solid var(--line); border-radius:6px; padding:4px 8px; width:100%; }
+  .in.mono { font-family:"JetBrains Mono", Consolas, monospace; font-size:12px; }
+  .in:focus, .inl:focus { outline:2px solid var(--accent); outline-offset:-1px; }
+  .in.bad { border-color:var(--danger); }
+  .in::placeholder, .inl::placeholder { color:var(--muted); opacity:.75; }
+  select.in { padding:3px 6px; }
+  .muted { color:var(--muted); } .small { font-size:11px; }
+  .grow { flex:1; min-width:0; }
+  .hrow { display:flex; gap:6px; align-items:center; }
+  .msg { font-size:12px; margin-top:3px; } .msg.bad { color:var(--danger); } .msg.ok { color:var(--ok); } .msg.warn { color:var(--warn); } .msg.info { color:var(--muted); }
+  .note { font-size:12px; color:var(--muted); margin-top:3px; }
+
+  /* main window */
+  .win { display:flex; height:100%; }
+  .tree { width:270px; background:var(--panel); border-right:1px solid var(--line); display:flex; flex-direction:column; user-select:none; }
+  .tree:focus { outline:none; }
+  .treetop { display:flex; gap:6px; padding:8px; border-bottom:1px solid var(--line); }
+  .treetop .in { padding:3px 8px; }
+  .treetop button { white-space:nowrap; }
+  .rows { overflow:auto; flex:1; padding:4px 0 60px; }
+  .tr { height:22px; display:flex; align-items:center; gap:6px; padding-right:8px; white-space:nowrap; cursor:default; position:relative; }
+  .tr:hover { background:var(--hover); }
+  .tr.sel { background:var(--sel); }
+  .tr .lbl { overflow:hidden; text-overflow:ellipsis; }
+  .tr .right { margin-left:auto; display:flex; gap:6px; align-items:center; }
+  .tr .plus { visibility:hidden; color:var(--muted); }
+  .tr:hover .plus { visibility:visible; }
+  .edge { width:3px; height:14px; border-radius:2px; flex:none; }
+  .dot { width:8px; height:8px; border-radius:50%; flex:none; }
+  .chev { width:10px; color:var(--muted); font-size:10px; }
+  .group { font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); padding:8px 10px 2px; }
+  .keycap { font-size:10px; border:1px solid var(--line); border-radius:3px; padding:0 4px; color:var(--muted); line-height:14px; }
+  .dim { opacity:.45; }
+  .tr input { height:18px; padding:0 4px; font-size:12px; }
+  .main { flex:1; display:flex; flex-direction:column; min-width:0; }
+  .hbar { height:26px; display:flex; align-items:center; padding:0 10px; font-weight:600; color:#fff; background:var(--c-Red); font-size:12px; }
+  .termrow { flex:1; display:flex; min-height:0; }
+  .term { flex:1; margin:0; padding:8px 10px; background:color-mix(in srgb, var(--canvas) 90%, var(--c-Red)); color:var(--fg); overflow:hidden; }
+  .strip { width:30px; border-left:1px solid var(--line); background:color-mix(in srgb, var(--panel) 90%, var(--c-Red)); display:flex; flex-direction:column; align-items:center; padding-top:8px; gap:10px; color:var(--muted); font-size:11px; }
+  .strip span { writing-mode:vertical-rl; }
+
+  /* menus, overlays */
+  .menu { position:fixed; z-index:50; min-width:220px; background:var(--raised); border:1px solid var(--line); border-radius:8px; box-shadow:var(--shadow); padding:4px; }
+  .mi { display:flex; justify-content:space-between; gap:20px; padding:4px 10px; border-radius:4px; cursor:default; }
+  .mi:hover { background:var(--sel); }
+  .mi.danger { color:var(--danger); }
+  .mi .k { color:var(--muted); font-size:11px; }
+  .msep { height:1px; background:var(--line); margin:4px 2px; }
+  .overlay { position:fixed; inset:0; z-index:40; background:#01040988; display:flex; align-items:center; justify-content:center; }
+  .modal { background:var(--panel); border:1px solid var(--line); border-radius:10px; box-shadow:var(--shadow); display:flex; flex-direction:column; max-height:calc(100vh - 80px); max-width:calc(100vw - 32px); }
+  .mhead { display:flex; align-items:center; padding:10px 14px; border-bottom:1px solid var(--line); font-weight:600; gap:8px; }
+  .mhead .x { margin-left:auto; border:none; background:none; color:var(--muted); }
+  .mbody { padding:14px; overflow:auto; flex:1; min-height:0; }
+  .foot { display:flex; gap:8px; padding:10px 14px; border-top:1px solid var(--line); align-items:center; }
+  .toast { position:fixed; right:16px; bottom:70px; z-index:60; width:420px; background:var(--raised); border:1px solid var(--line); border-radius:8px; box-shadow:var(--shadow); padding:10px 12px; }
+  .toast pre { margin:6px 0 0; white-space:pre-wrap; color:var(--muted); max-height:260px; overflow:auto; }
+
+  /* shared form bits */
+  .stack { display:flex; flex-direction:column; gap:10px; }
+  .frow { display:grid; grid-template-columns:100px 1fr; gap:10px; align-items:start; }
+  .frow > label { padding-top:5px; color:var(--muted); text-align:right; }
+  .sec { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--line); padding-bottom:3px; margin-top:6px; }
+  .swatches { display:flex; gap:6px; align-items:center; flex-wrap:wrap; padding-top:2px; }
+  .sw { width:18px; height:18px; border-radius:50%; padding:0; border:2px solid transparent; }
+  .sw.on { outline:2px solid var(--fg); outline-offset:1px; }
+  .sw.none { background:linear-gradient(135deg, transparent 45%, var(--muted) 45% 55%, transparent 55%) !important; border:1px solid var(--line); }
+  .cred { position:relative; }
+  .chip { display:inline-flex; gap:6px; align-items:center; border:1px solid var(--line); background:var(--canvas); border-radius:6px; padding:3px 8px; }
+  .prov { font-size:10px; font-weight:700; border-radius:3px; padding:0 4px; color:#fff; }
+  .btns { display:flex; gap:6px; margin-top:6px; flex-wrap:wrap; } .btns.right { justify-content:flex-end; }
+  .pop { position:absolute; z-index:5; top:100%; left:0; margin-top:4px; width:340px; background:var(--raised); border:1px solid var(--line); border-radius:8px; box-shadow:var(--shadow); padding:10px; display:flex; flex-direction:column; gap:8px; }
+  .seg { display:inline-flex; border:1px solid var(--line); border-radius:6px; overflow:hidden; align-self:flex-start; }
+  .seg button { border:none; border-radius:0; background:none; }
+  .seg button.on { background:var(--sel); color:var(--fg); font-weight:600; }
+  .seg.kind { margin-bottom:12px; }
+  .list { max-height:150px; overflow:auto; border:1px solid var(--line); border-radius:6px; }
+  .li { padding:4px 8px; cursor:default; } .li:hover, .li.on { background:var(--sel); }
+  .radio, .check { display:flex; gap:6px; align-items:center; }
+  .lbl { color:var(--muted); font-size:12px; }
+  details summary { cursor:pointer; color:var(--muted); margin-bottom:6px; }
+  textarea.in { resize:vertical; }
+  .checklist { border:1px solid var(--line); border-radius:6px; padding:8px 10px; background:var(--canvas); display:flex; flex-direction:column; gap:4px; }
+  .step .ic { display:inline-block; width:18px; font-weight:700; }
+  .step.wait { color:var(--muted); } .step.ok .ic { color:var(--ok); } .step.fail .ic, .step.fail .reason { color:var(--danger); }
+  .step.run .ic { color:var(--accent); animation:pulse .8s infinite; } .step.ask .ic { color:var(--warn); }
+  @keyframes pulse { 50% { opacity:.2; } }
+  .reason { margin-left:18px; font-size:12px; }
+  .ask { margin:4px 0 4px 18px; padding:8px; border:1px solid var(--warn); border-radius:6px; font-size:12px; display:flex; flex-direction:column; gap:6px; }
+
+  /* B: form + config */
+  .twocol { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .conf { border:1px solid var(--line); border-radius:6px; background:var(--canvas); padding:8px 10px; }
+  .conf pre { margin:0; white-space:pre-wrap; }
+  .conf .file { color:var(--muted); }
+  .conf .k { color:var(--ssh); }
+  .conf textarea { width:100%; border:1px dashed var(--line); background:var(--inset); color:var(--fg); padding:2px 4px 2px 4ch; border-radius:4px; resize:vertical; }
+
+  /* C: sections */
+  .secs { display:grid; grid-template-columns:170px 1fr; height:100%; }
+  .nav { border-right:1px solid var(--line); padding:8px; display:flex; flex-direction:column; gap:2px; }
+  .nav div { padding:5px 10px; border-radius:6px; cursor:default; display:flex; justify-content:space-between; align-items:center; }
+  .nav div.on { background:var(--sel); font-weight:600; }
+  .nav .err { width:7px; height:7px; border-radius:50%; background:var(--danger); }
+  .secbody { padding:14px; overflow:auto; }
+  .summary { display:flex; gap:8px; align-items:baseline; padding:10px 14px; border-bottom:1px solid var(--line); }
+  .summary b { font-size:15px; }
+
+  /* D: command line */
+  .drow { display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap; }
+  .drow > label { padding-top:5px; color:var(--muted); }
+  .cmd { border:1px solid var(--line); background:var(--canvas); border-radius:6px; padding:10px; line-height:28px; display:flex; flex-wrap:wrap; gap:4px 10px; align-items:center; margin:12px 0 4px; }
+  .cmd .kw { color:var(--ok); font-weight:700; }
+  .cmd .opt { white-space:nowrap; color:var(--muted); }
+  .inl { font:inherit; color:var(--fg); background:var(--inset); border:none; border-bottom:1px solid var(--muted); border-radius:3px 3px 0 0; padding:1px 4px; }
+  button.xs { padding:0 6px; font-size:11px; }
+
+  .switcher { position:fixed; bottom:14px; left:50%; transform:translateX(-50%); z-index:70; background:#000; color:#fff; border:1px solid #444; border-radius:999px; padding:6px 12px; display:flex; gap:12px; align-items:center; box-shadow:0 4px 16px #0008; white-space:nowrap; font-size:12px; }
+  .switcher button, .switcher select { background:#222; color:#fff; border:1px solid #555; border-radius:999px; padding:2px 10px; font:inherit; }
+  .switcher button.on { background:#fff; color:#000; }
+  .switcher .v { font-weight:700; min-width:150px; text-align:center; }
+  .switcher .sep { width:1px; height:18px; background:#555; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const { useState, useEffect, useRef } = React;
+const html = htm.bind(React.createElement);
+
+// ---------- fake data ----------
+const ME = 'u20939';
+const COLOURS = ['Red', 'Orange', 'Yellow', 'Green', 'Blue', 'Purple', 'Pink', 'Grey'];
+const SHELLS = [['pwsh', 'PowerShell 7'], ['powershell', 'Windows PowerShell'], ['cmd', 'cmd'], ['wsl', 'WSL']];
+const DISTROS = ['Ubuntu', 'Debian'];
+const KEYCHAIN = 'Windows Credential Manager';
+const KEEPASS_DBS = ['work', 'personal'];
+const KP_ENTRIES = ['work/Servers/web1', 'work/Servers/db1', 'work/Servers/eu-app', 'personal/Home/nas', 'personal/Home/router'];
+const TPM_ENTRIES = [{ id: '482', name: 'db1 dba', user: 'postgres' }, { id: '517', name: 'eu-app deploy', user: 'deploy' }, { id: '603', name: 'stg-web deploy', user: 'deploy' }];
+const FOLDERS0 = ['home', 'home/containers', 'work', 'work/prod', 'work/prod/eu', 'work/staging'];
+const ssh = o => ({ kind: 'ssh', host: '', port: '', user: '', key: '', folder: '', colour: '', cred: null, other: '', tabs: [], ...o });
+const local = o => ({ kind: 'local', shell: 'pwsh', distro: '', cwd: '', cmd: '', folder: '', colour: '', tabs: [], ...o });
+const SESSIONS0 = [
+  ssh({ alias: 'web1', host: '10.0.1.11', user: 'deploy', folder: 'work/prod', colour: 'Red', cred: { p: 'KeePass', db: 'work', title: 'Servers/web1', kind: 'password' },
+        other: 'ServerAliveInterval 30\nForwardAgent yes', tabs: [['app', 'vim deploy.sh'], ['logs', 'tail -f']] }),
+  ssh({ alias: 'web2', host: '10.0.1.12', user: 'deploy', folder: 'work/prod', colour: 'Red', cred: { p: 'KeePass', db: 'work', title: 'Servers/web1', kind: 'password' } }),
+  ssh({ alias: 'db1', host: '10.0.1.20', port: '2222', user: 'dba', key: '~/.ssh/prod_ed25519', folder: 'work/prod', colour: 'Red',
+        cred: { p: 'TPM', entry: '482', name: 'db1 dba', tpmUser: 'postgres', kind: 'passphrase' } }),
+  ssh({ alias: 'eu-app', host: 'eu-app.example.net', user: 'deploy', folder: 'work/prod/eu', colour: 'Orange', cred: { p: 'TPM', entry: '517', name: 'eu-app deploy', tpmUser: 'deploy', kind: 'password' } }),
+  ssh({ alias: 'stg-web', host: '10.0.2.11', user: 'deploy', folder: 'work/staging', colour: 'Yellow', cred: { p: 'Keychain', entry: 'slop-term/stg-web', kind: 'password' } }),
+  ssh({ alias: 'nas', host: '192.168.1.5', user: 'nik', folder: 'home', cred: { p: 'Keychain', entry: 'slop-term/nas', kind: 'password' }, dupLine: 12 }),
+  local({ alias: 'ubuntu', shell: 'wsl', cwd: '~/src', folder: 'home', tabs: [['src', '']] }),
+  local({ alias: 'api-shell', shell: 'pwsh', cmd: 'docker exec -it api bash', folder: 'home/containers', colour: 'Blue' }),
+  local({ alias: 'mac-zsh', shell: 'zsh', folder: 'home' }),
+];
+const HAND0 = ['pi', 'router'];
+
+// ---------- helpers ----------
+const fname = p => p ? p.split('/').join(' / ') : '(top level)';
+const last = p => p.split('/').pop();
+const parentOf = p => p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '';
+const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+const provName = c => c.p === 'Keychain' ? KEYCHAIN : c.p === 'KeePass' ? `KeePass ${c.db}` : 'TPM';
+const credLabel = c => c.p === 'Keychain' ? `${KEYCHAIN} › ${c.entry}` : c.p === 'KeePass' ? `KeePass ${c.db} › ${c.title}` : `TPM #${c.entry} ${c.name}`;
+const credKey = c => `${c.p}:${c.db || ''}:${c.title || c.entry}`;
+const PROV_BG = { Keychain: '#6e7781', KeePass: '#2a7e3b', TPM: '#7a3fc6' };
+const ProvTag = ({ p }) => html`<span className="prov" style=${{ background: PROV_BG[p] }}>${p === 'Keychain' ? 'KEYCHAIN' : p.toUpperCase()}</span>`;
+
+function aliasError(a, ctx) {
+  if (!a) return 'Required';
+  if (/[\s*?!,]/.test(a)) return 'No spaces, *, ?, ! or ,';
+  const orig = ctx.original && ctx.original.alias;
+  if (ctx.hand.some(h => h === a)) return 'Used by a Hand-written host in ~/.ssh/config';
+  const s = ctx.sessions.find(s => s.alias.toLowerCase() === a && s.alias !== orig);
+  if (s) return `Used by ${s.kind === 'ssh' ? 'SSH session' : 'local shell session'} ${s.alias} in ${fname(s.folder)}`;
+  return null;
+}
+const OWN = { hostname: 'Host name', port: 'Port', user: 'User', identityfile: 'Key file' };
+function parseOther(text) {
+  return text.split('\n').map((l, i) => {
+    const t = l.trim();
+    if (!t || t.startsWith('#')) return null;
+    const m = t.match(/^([A-Za-z]+)(\s+|\s*=\s*)(\S.*)$/);
+    if (!m) return { line: i + 1, err: /^[A-Za-z]+$/.test(t) ? `${t} needs a value` : `Can't read "${t}". Write Key value.` };
+    const k = m[1].toLowerCase();
+    if (OWN[k]) return { line: i + 1, err: `${m[1]} has its own field (${OWN[k]})` };
+    if (k === 'host' || k === 'match') return { line: i + 1, err: `${m[1]} starts a new block. It belongs in ~/.ssh/config.` };
+    if (k === 'proxyjump') return { line: i + 1, warn: "ProxyJump isn't in v1. Connecting will fail." };
+    return null;
+  }).filter(Boolean);
+}
+function keyNote(k, picked) {
+  if (picked && k === '~/.ssh/id_ed25519') return { t: 'info', text: `Picked C:\\Users\\${ME}\\.ssh\\id_ed25519, written as ~/.ssh/id_ed25519` };
+  const home = `c:\\users\\${ME}\\`;
+  if (k.toLowerCase().startsWith(home)) return { t: 'info', text: `Written as ~/${k.slice(home.length).replace(/\\/g, '/')}` };
+  if (/^[A-Za-z]:[\\/]/.test(k)) return { t: 'warn', text: "Won't work on macOS: the key is outside your home folder." };
+  return null;
+}
+const tpmClash = f => f.cred && f.cred.p === 'TPM' && f.cred.tpmUser !== (f.user || ME);
+function hostBlock(f) {
+  const l = [`Host ${f.alias || '<alias>'}`];
+  if (f.host) l.push(`    HostName ${f.host}`);
+  if (f.port) l.push(`    Port ${f.port}`);
+  if (f.user) l.push(`    User ${f.user}`);
+  if (f.key) l.push(`    IdentityFile ${f.key}`);
+  f.other.split('\n').filter(x => x.trim()).forEach(x => l.push('    ' + x.trim()));
+  return l.join('\n');
+}
+function sidecar(f) {
+  const o = f.kind === 'ssh'
+    ? { folder: f.folder, colour: f.colour || undefined, credential: f.cred ? { provider: f.cred.p, entry: f.cred.title ? `${f.cred.db}/<uuid>` : f.cred.entry, kind: f.cred.kind } : undefined }
+    : { name: f.alias, shell: f.shell, distro: f.distro || undefined, startFolder: f.cwd || undefined, command: f.cmd || undefined, folder: f.folder, colour: f.colour || undefined };
+  return `"${f.alias}": ${JSON.stringify(o, null, 2)}`;
+}
+function launchLine(f) {
+  const q = s => `"${s}"`;
+  if (f.shell === 'wsl') return `wsl${f.distro ? ` -d ${f.distro}` : ''}${f.cwd ? ` --cd ${f.cwd}` : ''}${f.cmd ? ` -- ${f.cmd}` : ''}`;
+  const cd = f.cwd ? `   (in ${f.cwd})` : '';
+  if (f.shell === 'cmd') return `cmd${f.cmd ? ` /c ${q(f.cmd)}` : ''}${cd}`;
+  if (f.shell === 'pwsh' || f.shell === 'powershell') return `${f.shell}${f.cmd ? ` -Command ${q(f.cmd)}` : ''}${cd}`;
+  return `${f.shell} -l${f.cmd ? `c ${q(f.cmd)}` : ''}${cd}`;
+}
+
+// ---------- shared fields ----------
+const Row = ({ l, children }) => html`<div className="frow"><label>${l}</label><div>${children}</div></div>`;
+const Sec = ({ t }) => html`<div className="sec">${t}</div>`;
+const Msg = ({ m }) => m ? html`<div className=${'msg ' + m.t}>${m.text}</div>` : null;
+
+function AliasField({ form, set, ctx, placeholder = 'e.g. web1' }) {
+  const err = aliasError(form.alias, ctx);
+  const changed = form.alias !== (ctx.original ? ctx.original.alias : '');
+  return html`<div>
+    <input className=${'in mono' + (err && form.alias ? ' bad' : '')} autoFocus=${!ctx.original} value=${form.alias} placeholder=${placeholder}
+      onChange=${e => set({ alias: e.target.value.toLowerCase() })}/>
+    ${form.alias && (err ? html`<div className="msg bad">${err}</div>` : changed && html`<div className="msg ok">Free</div>`)}
+  </div>`;
+}
+const HostInput = ({ form, set }) => html`<input className="in mono" value=${form.host} placeholder=${form.alias || 'same as alias'} title="Empty: ssh -G uses the alias" onChange=${e => set({ host: e.target.value })}/>`;
+const PortInput = ({ form, set }) => html`<input className="in mono" style=${{ width: 80 }} value=${form.port} placeholder="22" title="From ssh -G" onChange=${e => set({ port: e.target.value.replace(/\D/g, '') })}/>`;
+function UserField({ form, set }) {
+  const c = form.cred;
+  return html`<div>
+    <input className="in mono" value=${form.user} placeholder=${ME} title="From ssh -G: your local user name" onChange=${e => set({ user: e.target.value })}/>
+    ${tpmClash(form) && html`<div className="msg bad">TPM #${c.entry} has user name ${c.tpmUser}. Connecting is blocked until they match. <a onClick=${() => set({ user: c.tpmUser })}>Use ${c.tpmUser}</a></div>`}
+  </div>`;
+}
+function KeyField({ form, set }) {
+  return html`<div>
+    <div className="hrow">
+      <input className="in mono grow" value=${form.key} placeholder="~/.ssh/id_rsa, id_ecdsa, id_ed25519…" title="From ssh -G" onChange=${e => set({ key: e.target.value, picked: false })}/>
+      <button onClick=${() => set({ key: '~/.ssh/id_ed25519', picked: true })}>Browse…</button>
+    </div>
+    <${Msg} m=${keyNote(form.key, form.picked)}/>
+  </div>`;
+}
+function FolderSelect({ value, onChange, folders }) {
+  return html`<select className="in" value=${value} onChange=${e => onChange(e.target.value)}>
+    <option value="">(top level)</option>
+    ${folders.map(f => html`<option key=${f} value=${f}>${fname(f)}</option>`)}
+  </select>`;
+}
+function ColourPicker({ value, onChange }) {
+  return html`<div className="swatches">
+    <button className=${'sw none' + (!value ? ' on' : '')} title="No colour" onClick=${() => onChange('')}></button>
+    ${COLOURS.map(c => html`<button key=${c} className=${'sw' + (value === c ? ' on' : '')} title=${c} style=${{ background: `var(--c-${c})` }} onClick=${() => onChange(c)}></button>`)}
+    <span className="muted small">${value || 'None'}</span>
+  </div>`;
+}
+function OtherOptions({ value, onChange, opt, rows = 4 }) {
+  return html`<div>
+    <textarea className="in mono" rows=${rows} spellCheck=${false} value=${value} placeholder="Key value, one per line" onChange=${e => onChange(e.target.value)}/>
+    ${opt.map(o => html`<div key=${o.line} className=${'msg ' + (o.err ? 'bad' : 'warn')}>Line ${o.line}: ${o.err || o.warn}</div>`)}
+  </div>`;
+}
+
+function CredField({ form, set, ctx }) {
+  const [pop, setPop] = useState(null);
+  const [delSecret, setDel] = useState(false);
+  const c = form.cred;
+  const removed = ctx.original && ctx.original.cred && !c ? ctx.original.cred : null;
+  const sharers = removed ? ctx.sessions.filter(s => s.cred && s.alias !== ctx.original.alias && credKey(s.cred) === credKey(removed)).map(s => s.alias) : [];
+  const done = cred => { if (cred) set({ cred }); setPop(null); };
+  return html`<div className="cred">
+    ${c ? html`<div className="chip"><${ProvTag} p=${c.p}/><span>${credLabel(c)}</span><span className="muted">· ${c.kind}</span></div>`
+        : html`<div className="muted" style=${{ paddingTop: 4 }}>None. The app asks when you connect.</div>`}
+    <div className="btns">
+      <button onClick=${() => setPop(pop === 'set' ? null : 'set')}>Set secret…</button>
+      <button onClick=${() => setPop(pop === 'attach' ? null : 'attach')}>Attach existing…</button>
+      ${c && html`<button onClick=${() => { set({ cred: null }); setPop(null); }}>Remove</button>`}
+    </div>
+    ${removed && removed.p !== 'TPM' && (sharers.length
+      ? html`<div className="note">${sharers.join(', ')} also use this secret, so it stays in ${provName(removed)}.</div>`
+      : html`<label className="check msg"><input type="checkbox" checked=${delSecret} onChange=${e => setDel(e.target.checked)}/> Also delete the secret from ${provName(removed)}</label>`)}
+    ${pop === 'set' && html`<${SetSecret} form=${form} onDone=${done}/>`}
+    ${pop === 'attach' && html`<${AttachSecret} ctx=${ctx} onDone=${done}/>`}
+  </div>`;
+}
+function SetSecret({ form, onDone }) {
+  const [kind, setKind] = useState(form.key ? 'passphrase' : 'password');
+  const [to, setTo] = useState('Keychain');
+  const [pw, setPw] = useState('');
+  const title = `slop-term/${form.alias || 'new'}`;
+  return html`<div className="pop">
+    <div className="seg">${['password', 'passphrase'].map(k => html`<button key=${k} className=${kind === k ? 'on' : ''} onClick=${() => setKind(k)}>${k === 'password' ? 'Password' : 'Key passphrase'}</button>`)}</div>
+    <input type="password" className="in" autoFocus value=${pw} onChange=${e => setPw(e.target.value)}
+      placeholder=${kind === 'password' ? `Password for ${form.user || ME}` : `Passphrase for ${form.key || 'the key'}`}/>
+    <div className="lbl">Save to</div>
+    ${[['Keychain', KEYCHAIN], ...KEEPASS_DBS.map(d => [d, `KeePass ${d}`])].map(([v, l]) => html`<label key=${v} className="radio"><input type="radio" checked=${to === v} onChange=${() => setTo(v)}/> ${l}</label>`)}
+    <div className="note">The entry is created when you save the session.</div>
+    <div className="btns right">
+      <button onClick=${() => onDone(null)}>Cancel</button>
+      <button className="primary" disabled=${!pw} onClick=${() => onDone(to === 'Keychain' ? { p: 'Keychain', entry: title, kind } : { p: 'KeePass', db: to, title, kind })}>Set</button>
+    </div>
+  </div>`;
+}
+function AttachSecret({ ctx, onDone }) {
+  const [tab, setTab] = useState('KeePass');
+  const [q, setQ] = useState('');
+  const ql = q.toLowerCase();
+  let rows;
+  if (tab === 'KeePass') rows = KP_ENTRIES.filter(e => e.toLowerCase().includes(ql)).map(e => {
+    const [db, ...t] = e.split('/');
+    return { label: html`<span className="muted">${db} › </span>${t.join('/')}`, cred: { p: 'KeePass', db, title: t.join('/'), kind: 'password' } };
+  });
+  else if (tab === 'TPM') rows = TPM_ENTRIES.filter(e => `${e.id} ${e.name}`.toLowerCase().includes(ql)).map(e => (
+    { label: html`<span className="muted">#${e.id} </span>${e.name}<span className="muted"> · user ${e.user}</span>`, cred: { p: 'TPM', entry: e.id, name: e.name, tpmUser: e.user, kind: 'password' } }));
+  else rows = ctx.sessions.filter(s => s.cred && (!ctx.original || s.alias !== ctx.original.alias) && s.alias.includes(ql)).map(s => (
+    { label: html`${s.alias}<span className="muted"> · ${credLabel(s.cred)}</span>`, cred: s.cred }));
+  return html`<div className="pop">
+    <div className="seg">${['KeePass', 'TPM', 'Same secret as…'].map(t => html`<button key=${t} className=${tab === t ? 'on' : ''} onClick=${() => { setTab(t); setQ(''); }}>${t}</button>`)}</div>
+    <input className="in" autoFocus placeholder=${tab === 'TPM' ? 'TPM id or search' : tab === 'KeePass' ? 'Search all KeePass databases' : 'Saved session'} value=${q} onChange=${e => setQ(e.target.value)}/>
+    <div className="list">
+      ${rows.map((r, i) => html`<div key=${i} className="li" onClick=${() => onDone(r.cred)}>${r.label}</div>`)}
+      ${!rows.length && html`<div className="li muted">No match</div>`}
+    </div>
+    <div className="btns right"><button onClick=${() => onDone(null)}>Cancel</button></div>
+  </div>`;
+}
+
+// ---------- Test ----------
+function makeSteps(f) {
+  const user = f.user || ME, target = `${f.host || f.alias}:${f.port || 22}`;
+  return [
+    { id: 'resolve', label: `Resolved with ssh -G ${f.alias}`, detail: `${user}@${target}` },
+    { id: 'reach', label: `Reached ${target}` },
+    { id: 'key', label: 'Host key', detail: 'ED25519, matches known_hosts line 14' },
+    { id: 'login', label: `Logged in as ${user}`, detail: f.cred ? `with ${credLabel(f.cred)}` : 'with a password for this test only' },
+    { id: 'sftp', label: 'SFTP', detail: `opened /home/${user}` },
+  ];
+}
+function stepResult(id, f, outcome, answered) {
+  if (id === 'reach' && outcome === 'unreach') return { fail: 'Timed out after 10 s. Check Host name and Port.' };
+  if (id === 'key' && outcome === 'changed') return { fail: 'The host key changed since known_hosts line 14. Open a Tab to compare and replace it.' };
+  if (id === 'key' && outcome === 'newkey' && !answered) return { ask: 'key' };
+  if (id === 'login') {
+    if (tpmClash(f)) return { fail: `TPM #${f.cred.entry} has user name ${f.cred.tpmUser}, not ${f.user || ME}.` };
+    if (!f.cred && !answered) return { ask: 'pw' };
+    if (outcome === 'auth') return { fail: f.cred ? `Permission denied. The host refused the secret in ${credLabel(f.cred)}.` : 'Permission denied (password).' };
+  }
+  return 'ok';
+}
+function useTest(form, outcome) {
+  const [t, setT] = useState(null);
+  const timer = useRef();
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const go = (steps, f, i, states) => {
+    if (i >= steps.length) return setT({ steps, f, states, done: true });
+    states = [...states]; states[i] = 'run';
+    setT({ steps, f, states, i });
+    timer.current = setTimeout(() => step(steps, f, i, states, false), 420);
+  };
+  const step = (steps, f, i, states, answered) => {
+    const r = stepResult(steps[i].id, f, outcome, answered);
+    states = [...states];
+    if (r === 'ok') { states[i] = 'ok'; go(steps, f, i + 1, states); }
+    else if (r.ask) { states[i] = 'ask'; setT({ steps, f, states, i, ask: r.ask }); }
+    else { states[i] = 'fail'; setT({ steps, f, states, i, reason: r.fail, done: true }); }
+  };
+  return {
+    t,
+    run() { clearTimeout(timer.current); const steps = makeSteps(form); go(steps, form, 0, steps.map(() => 'wait')); },
+    answer(ok) {
+      const states = [...t.states];
+      if (!ok) { states[t.i] = 'fail'; return setT({ ...t, states, ask: null, reason: 'Cancelled.', done: true }); }
+      states[t.i] = 'run';
+      setT({ ...t, states, ask: null });
+      timer.current = setTimeout(() => step(t.steps, t.f, t.i, states, true), 420);
+    },
+    clear() { clearTimeout(timer.current); setT(null); },
+  };
+}
+const ICON = { wait: '○', run: '●', ok: '✓', fail: '✕', ask: '?' };
+function TestList({ test, empty }) {
+  const [pw, setPw] = useState('');
+  const t = test.t;
+  if (!t) return empty ? html`<div className="checklist muted">${empty}</div>` : null;
+  return html`<div className="checklist">
+    ${t.steps.map((s, i) => html`<div key=${s.id} className=${'step ' + t.states[i]}>
+      <span className="ic">${ICON[t.states[i]]}</span>${s.label}${s.detail && t.states[i] === 'ok' && html`<span className="muted"> · ${s.detail}</span>`}
+      ${t.states[i] === 'fail' && html`<div className="reason">${t.reason}</div>`}
+      ${t.states[i] === 'ask' && t.ask === 'key' && html`<div className="ask">
+        <div>First connection to ${t.f.host || t.f.alias}. Its ED25519 key fingerprint is <code>SHA256:Zt8wq1…k2Q</code>. Trust saves it to known_hosts.</div>
+        <div className="hrow"><button className="primary" onClick=${() => test.answer(true)}>Trust</button><button onClick=${() => test.answer(false)}>Cancel</button></div>
+      </div>`}
+      ${t.states[i] === 'ask' && t.ask === 'pw' && html`<div className="ask">
+        <div>No secret attached. Password for ${t.f.user || ME}@${t.f.host || t.f.alias}, used for this test only:</div>
+        <div className="hrow"><input type="password" className="in" autoFocus value=${pw} onChange=${e => setPw(e.target.value)} onKeyDown=${e => e.key === 'Enter' && test.answer(true)}/>
+          <button className="primary" onClick=${() => test.answer(true)}>Log in</button><button onClick=${() => test.answer(false)}>Cancel</button></div>
+      </div>`}
+    </div>`)}
+    ${t.done && !t.reason && html`<div className="step ok"><span className="ic"></span><span className="muted">Disconnected. Everything works.</span></div>`}
+  </div>`;
+}
+
+// ---------- variant A: stacked form ----------
+function VarA({ form, set, ctx, test, opt }) {
+  const n = form.other.split('\n').filter(l => l.trim()).length;
+  return html`<div className="stack">
+    <${Sec} t="Session"/>
+    <${Row} l="Alias"><${AliasField} form=${form} set=${set} ctx=${ctx}/><//>
+    <${Row} l="Folder"><${FolderSelect} value=${form.folder} onChange=${v => set({ folder: v })} folders=${ctx.folders}/><//>
+    <${Row} l="Colour"><${ColourPicker} value=${form.colour} onChange=${v => set({ colour: v })}/><//>
+    <${Sec} t="Connection"/>
+    <${Row} l="Host name"><${HostInput} form=${form} set=${set}/><//>
+    <${Row} l="Port"><${PortInput} form=${form} set=${set}/><//>
+    <${Row} l="User"><${UserField} form=${form} set=${set}/><//>
+    <${Sec} t="Login"/>
+    <${Row} l="Key file"><${KeyField} form=${form} set=${set}/><//>
+    <${Row} l="Secret"><${CredField} form=${form} set=${set} ctx=${ctx}/><//>
+    <details open=${!!form.other || opt.length > 0}>
+      <summary>Other options${n ? ` · ${plural(n, 'line')}` : ''}</summary>
+      <${OtherOptions} value=${form.other} onChange=${v => set({ other: v })} opt=${opt}/>
+    </details>
+    <${TestList} test=${test}/>
+  </div>`;
+}
+
+// ---------- variant B: form beside the config it writes ----------
+function VarB({ form, set, ctx, test, opt }) {
+  const gen = hostBlock({ ...form, other: '' }).split('\n');
+  return html`<div className="twocol">
+    <div className="stack">
+      <${Row} l="Alias"><${AliasField} form=${form} set=${set} ctx=${ctx}/><//>
+      <${Row} l="Host name"><${HostInput} form=${form} set=${set}/><//>
+      <${Row} l="Port"><${PortInput} form=${form} set=${set}/><//>
+      <${Row} l="User"><${UserField} form=${form} set=${set}/><//>
+      <${Row} l="Key file"><${KeyField} form=${form} set=${set}/><//>
+      <${Row} l="Secret"><${CredField} form=${form} set=${set} ctx=${ctx}/><//>
+      <${Row} l="Folder"><${FolderSelect} value=${form.folder} onChange=${v => set({ folder: v })} folders=${ctx.folders}/><//>
+      <${Row} l="Colour"><${ColourPicker} value=${form.colour} onChange=${v => set({ colour: v })}/><//>
+    </div>
+    <div className="stack">
+      <div className="conf mono">
+        <pre className="file"># ~/.ssh/slop-term.conf</pre>
+        <pre>${gen.map((l, i) => html`<div key=${i}>${i === 0 ? html`<span className="k">Host</span> ${l.slice(5)}` : html`    <span className="k">${l.trim().split(' ')[0]}</span> ${l.trim().split(' ').slice(1).join(' ')}`}</div>`)}</pre>
+        <textarea rows=${Math.max(3, form.other.split('\n').length + 1)} spellCheck=${false} value=${form.other} placeholder="other options, Key value per line" onChange=${e => set({ other: e.target.value })}/>
+        ${opt.map(o => html`<div key=${o.line} className=${'msg ' + (o.err ? 'bad' : 'warn')}>Line ${o.line}: ${o.err || o.warn}</div>`)}
+        <pre className="file" style=${{ marginTop: 8 }}># ~/.ssh/slop-term.json</pre>
+        <pre className="muted">${`folder ${fname(form.folder)}${form.colour ? `, colour ${form.colour}` : ''}${form.cred ? `\nsecret ${credLabel(form.cred)} (${form.cred.kind})` : ''}`}</pre>
+      </div>
+      <${TestList} test=${test} empty="Test connects with these values without saving them."/>
+    </div>
+  </div>`;
+}
+
+// ---------- variant C: sections in a side list ----------
+function VarC({ form, set, ctx, test, opt }) {
+  const [sec, setSec] = useState('conn');
+  const runId = test.t && test.t.steps;
+  useEffect(() => { if (runId) setSec('test'); }, [runId]);
+  const n = form.other.split('\n').filter(l => l.trim()).length;
+  const secs = [
+    ['conn', 'Connection', !!(form.alias && aliasError(form.alias, ctx))],
+    ['login', 'Login', tpmClash(form)],
+    ['place', 'Folder and colour'],
+    ['other', `Other options${n ? ` (${n})` : ''}`, opt.some(o => o.err)],
+    ['test', 'Test', !!(test.t && test.t.reason)],
+  ];
+  return html`<div style=${{ display: 'flex', flexDirection: 'column', height: '100%', margin: -14 }}>
+    <div className="summary">
+      ${form.colour && html`<span className="dot" style=${{ background: `var(--c-${form.colour})` }}></span>`}
+      <b className="mono">${form.alias || 'new session'}</b>
+      <span className="muted mono">${form.user || ME}@${form.host || form.alias || '?'}:${form.port || 22}</span>
+      <span className="muted small" style=${{ marginLeft: 'auto' }}>${fname(form.folder)}</span>
+    </div>
+    <div className="secs grow">
+      <div className="nav">${secs.map(([k, l, err]) => html`<div key=${k} className=${sec === k ? 'on' : ''} onClick=${() => setSec(k)}>${l}${err && html`<span className="err"></span>`}</div>`)}</div>
+      <div className="secbody">
+        ${sec === 'conn' && html`<div className="stack">
+          <${Row} l="Alias"><${AliasField} form=${form} set=${set} ctx=${ctx}/><//>
+          <${Row} l="Host name"><${HostInput} form=${form} set=${set}/><//>
+          <${Row} l="Port"><${PortInput} form=${form} set=${set}/><//>
+          <${Row} l="User"><${UserField} form=${form} set=${set}/><//>
+        </div>`}
+        ${sec === 'login' && html`<div className="stack">
+          <${Row} l="Key file"><${KeyField} form=${form} set=${set}/><//>
+          <${Row} l="Secret"><${CredField} form=${form} set=${set} ctx=${ctx}/><//>
+          ${tpmClash(form) && html`<${Row} l="User"><${UserField} form=${form} set=${set}/><//>`}
+        </div>`}
+        ${sec === 'place' && html`<div className="stack">
+          <${Row} l="Folder"><${FolderSelect} value=${form.folder} onChange=${v => set({ folder: v })} folders=${ctx.folders}/><//>
+          <${Row} l="Colour"><${ColourPicker} value=${form.colour} onChange=${v => set({ colour: v })}/><//>
+        </div>`}
+        ${sec === 'other' && html`<div className="stack">
+          <div className="note">Every other line of this host's block in ~/.ssh/slop-term.conf, one Key value per line.</div>
+          <${OtherOptions} value=${form.other} onChange=${v => set({ other: v })} opt=${opt} rows=${10}/>
+        </div>`}
+        ${sec === 'test' && html`<${TestList} test=${test} empty="Press Test to connect with these values without saving them."/>`}
+      </div>
+    </div>
+  </div>`;
+}
+
+// ---------- variant D: the ssh command line ----------
+function VarD({ form, set, ctx, test, opt }) {
+  const lines = form.other.split('\n');
+  const I = (k, ph, title) => html`<input className="inl mono" size=${Math.max((form[k] || ph).length, 2)} value=${form[k]} placeholder=${ph} title=${title}
+    onChange=${e => set({ [k]: k === 'port' ? e.target.value.replace(/\D/g, '') : e.target.value, picked: false })}/>`;
+  const setLine = (i, v) => { const l = [...lines]; l[i] = v; set({ other: l.join('\n') }); };
+  return html`<div>
+    <div className="drow">
+      <label>Alias</label><div style=${{ width: 180 }}><${AliasField} form=${form} set=${set} ctx=${ctx}/></div>
+      <label>in</label><div style=${{ width: 170 }}><${FolderSelect} value=${form.folder} onChange=${v => set({ folder: v })} folders=${ctx.folders}/></div>
+      <${ColourPicker} value=${form.colour} onChange=${v => set({ colour: v })}/>
+    </div>
+    <div className="cmd mono">
+      <span className="kw">ssh</span>
+      <span className="opt">-p ${I('port', '22', 'Port, from ssh -G')}</span>
+      <span className="opt">-i ${I('key', '~/.ssh/id_ed25519', 'IdentityFile, from ssh -G')}<button className="xs" style=${{ marginLeft: 4 }} onClick=${() => set({ key: '~/.ssh/id_ed25519', picked: true })}>…</button></span>
+      <span className="opt">${I('user', ME, 'User, from ssh -G')}@${I('host', form.alias || 'host', 'HostName. Empty: the alias')}</span>
+      ${lines.map((l, i) => html`<span key=${i} className="opt">-o <input className="inl mono" size=${Math.max(l.length, 10)} value=${l} placeholder="Key value" spellCheck=${false} onChange=${e => setLine(i, e.target.value)}/>
+        ${lines.length > 1 && html`<button className="xs" title="Remove" onClick=${() => set({ other: lines.filter((_, j) => j !== i).join('\n') })}>✕</button>`}</span>`)}
+      <button className="xs" onClick=${() => set({ other: form.other + '\n' })}>+ -o</button>
+    </div>
+    ${opt.map(o => html`<div key=${o.line} className=${'msg ' + (o.err ? 'bad' : 'warn')}>-o number ${o.line}: ${o.err || o.warn}</div>`)}
+    <${Msg} m=${keyNote(form.key, form.picked)}/>
+    ${tpmClash(form) && html`<div className="msg bad">TPM #${form.cred.entry} has user name ${form.cred.tpmUser}. Connecting is blocked until they match. <a onClick=${() => set({ user: form.cred.tpmUser })}>Use ${form.cred.tpmUser}</a></div>`}
+    <div className="drow" style=${{ marginTop: 12 }}><label>Secret</label><div className="grow"><${CredField} form=${form} set=${set} ctx=${ctx}/></div></div>
+    <div style=${{ marginTop: 12 }}><${TestList} test=${test}/></div>
+  </div>`;
+}
+
+const VARIANTS = {
+  A: { name: 'Stacked form', C: VarA, width: 560 },
+  B: { name: 'Form + config', C: VarB, width: 920 },
+  C: { name: 'Sections', C: VarC, width: 680, height: 520 },
+  D: { name: 'Command line', C: VarD, width: 780 },
+};
+const VKEYS = Object.keys(VARIANTS);
+
+// ---------- local shell form ----------
+function LocalForm({ form, set, ctx }) {
+  const known = SHELLS.some(s => s[0] === form.shell);
+  return html`<div className="stack">
+    <${Row} l="Name"><${AliasField} form=${form} set=${set} ctx=${ctx} placeholder="e.g. ubuntu"/><//>
+    <${Row} l="Shell">
+      <select className="in" value=${form.shell} onChange=${e => set({ shell: e.target.value })}>
+        ${SHELLS.map(([v, l]) => html`<option key=${v} value=${v}>${l}</option>`)}
+        ${!known && html`<option value=${form.shell}>${form.shell} (not on this machine)</option>`}
+      </select>
+      ${!known && html`<div className="msg warn">This machine has no ${form.shell}. The session syncs and can be edited, but won't open here.</div>`}
+    <//>
+    ${form.shell === 'wsl' && html`<${Row} l="WSL distro">
+      <select className="in" value=${form.distro} onChange=${e => set({ distro: e.target.value })}>
+        <option value="">Default (Ubuntu)</option>${DISTROS.map(d => html`<option key=${d} value=${d}>${d}</option>`)}
+      </select><//>`}
+    <${Row} l="Start folder"><input className="in mono" value=${form.cwd} placeholder=${form.shell === 'wsl' ? '~  (a Linux path)' : '~  (your home folder)'} onChange=${e => set({ cwd: e.target.value })}/><//>
+    <${Row} l="Command">
+      <input className="in mono" value=${form.cmd} placeholder="none: opens the shell" onChange=${e => set({ cmd: e.target.value })}/>
+      <div className="note">Starts <code>${launchLine(form)}</code></div>
+    <//>
+    <${Row} l="Folder"><${FolderSelect} value=${form.folder} onChange=${v => set({ folder: v })} folders=${ctx.folders}/><//>
+    <${Row} l="Colour"><${ColourPicker} value=${form.colour} onChange=${v => set({ colour: v })}/><//>
+  </div>`;
+}
+
+// ---------- dialogs ----------
+function Modal({ title, width, height, onClose, foot, children }) {
+  useEffect(() => {
+    const k = e => e.key === 'Escape' && !document.querySelector('.pop') && onClose();
+    addEventListener('keydown', k); return () => removeEventListener('keydown', k);
+  }, [onClose]);
+  return html`<div className="overlay">
+    <div className="modal" style=${{ width, height }} role="dialog">
+      <div className="mhead"><span>${title}</span><button className="x" onClick=${onClose}>✕</button></div>
+      <div className="mbody">${children}</div>
+      ${foot}
+    </div>
+  </div>`;
+}
+
+function SessionDialog({ init, mode, variant, localMode, ctx, outcome, onClose, onSave }) {
+  const [form, setForm] = useState(init);
+  const set = patch => setForm(f => ({ ...f, ...patch }));
+  const test = useTest(form, outcome);
+  const fctx = { ...ctx, original: mode === 'edit' ? init : null };
+  const opt = form.kind === 'ssh' ? parseOther(form.other) : [];
+  const canSave = !aliasError(form.alias, fctx) && !opt.some(o => o.err);
+  const switchKind = kind => { test.clear(); setForm(f => ({ ...(kind === 'ssh' ? ssh({}) : local({})), alias: f.alias, folder: f.folder, colour: f.colour })); };
+  const title = mode === 'edit' ? html`Edit ${init.alias} <span className="muted small">${init.kind === 'ssh' ? 'SSH session' : 'local shell session'}</span>`
+    : form.kind === 'ssh' ? 'New SSH session' : 'New local shell session';
+  const foot = html`<div className="foot">
+    ${form.kind === 'ssh' && html`<button onClick=${test.run} disabled=${!form.alias}>Test</button>`}
+    <span className="grow"></span>
+    <button onClick=${onClose}>Cancel</button>
+    <button className="primary" disabled=${!canSave} onClick=${() => onSave(form, mode === 'edit' ? init : null)}>Save</button>
+  </div>`;
+  if (form.kind === 'local' && localMode === 'own')
+    return html`<${Modal} title=${title} width=${460} onClose=${onClose} foot=${foot}><${LocalForm} form=${form} set=${set} ctx=${fctx}/><//>`;
+  const V = VARIANTS[variant];
+  return html`<${Modal} title=${title} width=${V.width} height=${form.kind === 'ssh' ? V.height : undefined} onClose=${onClose} foot=${foot}>
+    ${mode === 'new' && localMode === 'same' && html`<div className="seg kind">
+      ${[['ssh', 'SSH session'], ['local', 'Local shell session']].map(([k, l]) => html`<button key=${k} className=${form.kind === k ? 'on' : ''} onClick=${() => switchKind(k)}>${l}</button>`)}
+    </div>`}
+    ${form.kind === 'local' ? html`<${LocalForm} form=${form} set=${set} ctx=${fctx}/>` : html`<${V.C} form=${form} set=${set} ctx=${fctx} test=${test} opt=${opt}/>`}
+  <//>`;
+}
+
+function MovePicker({ name, current, exclude, folders, onPick, onClose }) {
+  const [q, setQ] = useState('');
+  const [i, setI] = useState(0);
+  const list = ['', ...folders].filter(f => !(exclude && (f === exclude || f.startsWith(exclude + '/'))) && fname(f).toLowerCase().includes(q.toLowerCase()));
+  const key = e => {
+    if (e.key === 'ArrowDown') { setI(Math.min(i + 1, list.length - 1)); e.preventDefault(); }
+    if (e.key === 'ArrowUp') { setI(Math.max(i - 1, 0)); e.preventDefault(); }
+    if (e.key === 'Enter' && list[i] !== undefined) onPick(list[i]);
+  };
+  return html`<${Modal} title=${`Move ${name} to…`} width=${400} onClose=${onClose}>
+    <input className="in" autoFocus placeholder="Type part of a folder name, then Enter" value=${q} onChange=${e => { setQ(e.target.value); setI(0); }} onKeyDown=${key}/>
+    <div className="list" style=${{ marginTop: 8, maxHeight: 240 }}>
+      ${list.map((f, j) => html`<div key=${f} className=${'li' + (j === i ? ' on' : '')} onMouseEnter=${() => setI(j)} onClick=${() => onPick(f)}>
+        ${fname(f)}${f === current && html`<span className="muted small"> · current</span>`}</div>`)}
+      ${!list.length && html`<div className="li muted">No folder matches</div>`}
+    </div>
+    <div className="note">↑ ↓ to choose, Enter to move, Esc to cancel.</div>
+  <//>`;
+}
+
+function secretsInside(inside, sessions) {
+  const outside = new Set(sessions.filter(s => !inside(s) && s.cred).map(s => credKey(s.cred)));
+  const m = new Map();
+  sessions.filter(s => inside(s) && s.cred && s.cred.p !== 'TPM' && !outside.has(credKey(s.cred))).forEach(s => m.set(credKey(s.cred), s.cred));
+  return [...m.values()];
+}
+function ConfirmDelete({ title, lines, secrets, onConfirm, onClose }) {
+  const [del, setDel] = useState(false);
+  const cancel = useRef();
+  useEffect(() => cancel.current && cancel.current.focus(), []);
+  const provs = [...new Set(secrets.map(c => c.p === 'Keychain' ? 'keychain' : 'KeePass'))].join(' / ');
+  return html`<${Modal} title="Delete" width=${440} onClose=${onClose} foot=${html`<div className="foot"><span className="grow"></span>
+      <button ref=${cancel} onClick=${onClose}>Cancel</button><button className="danger" onClick=${() => onConfirm(del)}>Delete</button></div>`}>
+    <div className="stack">
+      <div style=${{ fontSize: 14 }}>${title}</div>
+      ${lines.map((l, i) => html`<div key=${i} className="muted">${l}</div>`)}
+      ${secrets.length > 0 && html`<label className="check"><input type="checkbox" checked=${del} onChange=${e => setDel(e.target.checked)}/>
+        Also delete ${plural(secrets.length, 'saved secret')} from ${provs}</label>`}
+      ${del && secrets.some(c => c.p === 'KeePass') && html`<div className="note">KeePass work is locked. Delete asks for its master password first.</div>`}
+    </div>
+  <//>`;
+}
+
+// ---------- app ----------
+function App() {
+  const qv = new URLSearchParams(location.search).get('variant');
+  const [variant, setVariantRaw] = useState(VKEYS.includes(qv) ? qv : 'A');
+  const [localMode, setLocalMode] = useState('same');
+  const [outcome, setOutcome] = useState('ok');
+  const [theme, setTheme] = useState(matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+  const [sessions, setSessions] = useState(SESSIONS0);
+  const [folders, setFolders] = useState(FOLDERS0);
+  const [hand, setHand] = useState(HAND0);
+  const [orphans, setOrphans] = useState([]);
+  const [dlg, setDlg] = useState(null);
+  const [menu, setMenu] = useState(null);
+  const [toast, setToast] = useState(null);
+  const [sel, setSel] = useState({ t: 's', id: 'web1' });
+  const [collapsed, setCollapsed] = useState(new Set());
+  const [renaming, setRenaming] = useState(null);
+  const [filter, setFilter] = useState('');
+  const dlgId = useRef(0);
+
+  useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
+  const setVariant = v => { setVariantRaw(v); history.replaceState(null, '', `?variant=${v}`); };
+  const cycle = d => setVariant(VKEYS[(VKEYS.indexOf(variant) + d + VKEYS.length) % VKEYS.length]);
+  useEffect(() => {
+    const k = e => {
+      if (e.target.closest('input, textarea, select, [contenteditable]')) return;
+      if (e.key === 'ArrowLeft') cycle(-1);
+      if (e.key === 'ArrowRight') cycle(1);
+    };
+    addEventListener('keydown', k); return () => removeEventListener('keydown', k);
+  });
+  useEffect(() => {
+    const close = e => { if (!e.target.closest('.menu')) setMenu(null); };
+    addEventListener('mousedown', close); return () => removeEventListener('mousedown', close);
+  }, []);
+  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 9000); return () => clearTimeout(t); }, [toast]);
+
+  const ctx = { sessions, folders, hand };
+  const byAlias = a => sessions.find(s => s.alias === a);
+  const open = d => { dlgId.current++; setMenu(null); setDlg({ ...d, id: dlgId.current }); };
+  const selFolder = () => sel.t === 'f' ? sel.id : sel.t === 's' && byAlias(sel.id) ? byAlias(sel.id).folder : '';
+  const nextFree = base => { let n = 2; while (sessions.some(s => s.alias === `${base}-${n}`)) n++; return `${base}-${n}`; };
+
+  const act = {
+    openTab: name => setToast({ title: `Opens a Tab on ${name}` }),
+    edit: s => open({ type: 'session', mode: 'edit', init: s }),
+    newSsh: folder => open({ type: 'session', mode: 'new', init: ssh({ alias: '', folder }) }),
+    newLocal: folder => open({ type: 'session', mode: 'new', init: local({ alias: '', folder }) }),
+    duplicate: s => open({ type: 'session', mode: 'new', init: { ...s, alias: nextFree(s.alias), tabs: [] } }),
+    move: s => open({ type: 'move', name: s.alias, current: s.folder, onPick: f => { setSessions(ss => ss.map(x => x === s ? { ...x, folder: f } : x)); setDlg(null); } }),
+    moveFolder: p => open({ type: 'move', name: last(p), current: parentOf(p), exclude: p, onPick: f => {
+      const np = f ? `${f}/${last(p)}` : last(p);
+      if (folders.some(x => x.toLowerCase() === np.toLowerCase())) return setToast({ title: `${fname(f)} already has a folder named ${last(p)}` });
+      renameFolder(p, np); setDlg(null);
+    } }),
+    del: s => {
+      const secrets = secretsInside(x => x === s, sessions);
+      const sharers = s.cred ? sessions.filter(x => x !== s && x.cred && credKey(x.cred) === credKey(s.cred)).map(x => x.alias) : [];
+      open({ type: 'delete', title: html`Delete <b className="mono">${s.alias}</b>?`, secrets, lines: [
+        s.tabs.length && `${plural(s.tabs.length, 'Tab')} ${s.tabs.length === 1 ? 'is' : 'are'} open. They stay open.`,
+        sharers.length && `${sharers.join(', ')} also use${sharers.length === 1 ? 's' : ''} its secret, so the secret stays.`,
+        s.cred && s.cred.p === 'TPM' && 'Its TPM entry stays. The app never deletes from TPM.',
+      ].filter(Boolean), onConfirm: () => {
+        setSessions(ss => ss.filter(x => x !== s));
+        if (s.tabs.length) setOrphans(o => [...o, ...s.tabs.map(t => [s.alias, t[0]])]);
+        setDlg(null);
+      } });
+    },
+    delFolder: p => {
+      const inside = s => s.folder === p || s.folder.startsWith(p + '/');
+      const subs = folders.filter(f => f.startsWith(p + '/')).length;
+      const ss = sessions.filter(inside);
+      const tabs = ss.reduce((n, s) => n + s.tabs.length, 0);
+      const doIt = () => {
+        setFolders(fs => fs.filter(f => f !== p && !f.startsWith(p + '/')));
+        setSessions(all => all.filter(s => !inside(s)));
+        setOrphans(o => [...o, ...ss.flatMap(s => s.tabs.map(t => [s.alias, t[0]]))]);
+        setDlg(null);
+      };
+      if (!subs && !ss.length) { doIt(); return setToast({ title: `Deleted empty folder ${last(p)}`, body: 'An empty folder goes without asking.' }); }
+      const parts = [subs && plural(subs, 'subfolder'), ss.length && plural(ss.length, 'Saved session')].filter(Boolean).join(' and ');
+      open({ type: 'delete', title: html`Delete folder <b className="mono">${last(p)}</b>, ${parts}?`, secrets: secretsInside(inside, sessions),
+        lines: [tabs && `${plural(tabs, 'Tab')} ${tabs === 1 ? 'is' : 'are'} open. They stay open and move to Unsaved.`].filter(Boolean), onConfirm: doIt });
+    },
+    newFolder: parent => { setMenu(null); setCollapsed(c => { const n = new Set(c); n.delete(parent); return n; }); setRenaming({ parent, path: null, value: '' }); },
+    rename: p => { setMenu(null); setRenaming({ parent: parentOf(p), path: p, value: last(p) }); },
+    moveIn: h => {
+      setHand(hs => hs.filter(x => x !== h));
+      setSessions(ss => [...ss, ssh({ alias: h, host: h === 'pi' ? '192.168.1.9' : '192.168.1.1', user: 'pi' })]);
+      setToast({ title: `Moved ${h} into slop-term`, body: `Copied Host ${h} into ~/.ssh/slop-term.conf\nCommented out its block in ~/.ssh/config (line 30)` });
+    },
+  };
+  function renameFolder(from, to) {
+    setFolders(fs => fs.map(f => f === from ? to : f.startsWith(from + '/') ? to + f.slice(from.length) : f).sort());
+    setSessions(ss => ss.map(s => s.folder === from ? { ...s, folder: to } : s.folder.startsWith(from + '/') ? { ...s, folder: to + s.folder.slice(from.length) } : s));
+  }
+  const renameError = r => {
+    const v = r.value.trim();
+    if (!v) return 'Name the folder';
+    if (v.includes('/')) return 'No / in folder names';
+    const full = r.parent ? `${r.parent}/${v}` : v;
+    if (folders.some(f => f !== r.path && parentOf(f) === r.parent && last(f).toLowerCase() === v.toLowerCase())) return `${fname(r.parent)} already has ${last(full)}`;
+    return null;
+  };
+  const commitRename = () => {
+    const r = renaming; if (!r) return;
+    if (renameError(r)) { if (!r.path && !r.value.trim()) setRenaming(null); return; }
+    const full = r.parent ? `${r.parent}/${r.value.trim()}` : r.value.trim();
+    if (r.path) renameFolder(r.path, full); else setFolders(fs => [...fs, full].sort());
+    setRenaming(null);
+  };
+
+  const sessionMenu = s => [
+    ['Open Tab', 'Enter', () => act.openTab(s.alias)],
+    ['Edit', 'F2', () => act.edit(s)],
+    ['Duplicate', '', () => act.duplicate(s)],
+    ['Move to…', 'F7', () => act.move(s)],
+    s.dupLine && '-',
+    s.dupLine && [`Comment out the copy in ~/.ssh/config`, '', () => setToast({ title: `Commented out Host ${s.alias} in ~/.ssh/config line ${s.dupLine}` })],
+    '-',
+    ['Delete', 'Del', () => act.del(s), true],
+  ].filter(Boolean);
+  const folderMenu = p => [
+    ['New SSH session here', '', () => act.newSsh(p)],
+    ['New local shell here', '', () => act.newLocal(p)],
+    ['New folder here', '', () => act.newFolder(p)],
+    '-',
+    ['Rename', 'F2', () => act.rename(p)],
+    ['Move to…', 'F7', () => act.moveFolder(p)],
+    '-',
+    ['Delete', 'Del', () => act.delFolder(p), true],
+  ];
+  const handMenu = h => [['Open Tab', 'Enter', () => act.openTab(h)], ['Move into slop-term', '', () => act.moveIn(h)]];
+  const ctxMenu = (e, items, s) => { e.preventDefault(); setSel(s); setMenu({ x: e.clientX, y: e.clientY, items }); };
+
+  const treeKey = e => {
+    if (renaming || dlg) return;
+    const s = sel.t === 's' && byAlias(sel.id);
+    if (s) ({ Enter: () => act.openTab(s.alias), F2: () => act.edit(s), Delete: () => act.del(s), F7: () => act.move(s) }[e.key] || (() => {}))();
+    if (sel.t === 'f') ({ F2: () => act.rename(sel.id), Delete: () => act.delFolder(sel.id), F7: () => act.moveFolder(sel.id) }[e.key] || (() => {}))();
+    if (sel.t === 'h' && e.key === 'Enter') act.openTab(sel.id);
+    if (['F2', 'F7', 'Delete'].includes(e.key)) e.preventDefault();
+  };
+
+  // ---- tree rows ----
+  let tabNo = 0;
+  const pad = d => ({ paddingLeft: 8 + d * 14 });
+  const isSel = (t, id) => sel.t === t && sel.id === id ? ' sel' : '';
+  const tabRows = (tabs, d) => tabs.map(([folder, title], i) => {
+    tabNo++;
+    return html`<div key=${i} className="tr" style=${pad(d)}><span className="lbl">${folder}${title && html`<span className="muted"> ${title}</span>`}</span>
+      ${tabNo <= 9 && html`<span className="right"><span className="keycap" title=${`Ctrl+Shift+${tabNo}`}>${tabNo}</span></span>`}</div>`;
+  });
+  const sessionRow = (s, d) => {
+    const missing = s.kind === 'local' && !SHELLS.some(x => x[0] === s.shell);
+    return html`<${React.Fragment} key=${s.alias}>
+      <div className=${'tr' + isSel('s', s.alias) + (missing ? ' dim' : '')} style=${pad(d)} onClick=${() => setSel({ t: 's', id: s.alias })}
+        onDoubleClick=${() => act.openTab(s.alias)} onContextMenu=${e => ctxMenu(e, sessionMenu(s), { t: 's', id: s.alias })}>
+        <span className="edge" style=${{ background: s.kind === 'ssh' ? 'var(--ssh)' : 'var(--local)' }}></span>
+        ${s.colour && html`<span className="dot" style=${{ background: `var(--c-${s.colour})` }}></span>`}
+        <span className="lbl">${s.alias}</span>
+        <span className="right">
+          ${s.dupLine && html`<span style=${{ color: 'var(--warn)' }} title=${`Also defined in ~/.ssh/config line ${s.dupLine}`}>⚠</span>`}
+          ${missing ? html`<span className="muted small" title="not available on this machine">n/a</span>` : html`<span className="plus" title="Open another Tab">+</span>`}
+        </span>
+      </div>
+      ${tabRows(s.tabs, d + 1)}
+    <//>`;
+  };
+  const renameRow = (d, r) => html`<div key="rename" className="tr" style=${pad(d)}>
+    <span className="chev">▾</span><span>📁</span>
+    <input className=${'in' + (renameError(r) && r.value ? ' bad' : '')} autoFocus value=${r.value} title=${renameError(r) || ''}
+      onFocus=${e => e.target.select()} onChange=${e => setRenaming({ ...r, value: e.target.value })} onBlur=${commitRename}
+      onKeyDown=${e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenaming(null); e.stopPropagation(); }}/>
+  </div>`;
+  const folderRows = (parent, d) => {
+    const subs = folders.filter(f => parentOf(f) === parent);
+    const ss = sessions.filter(s => s.folder === parent).sort((a, b) => a.alias.localeCompare(b.alias));
+    return [
+      renaming && !renaming.path && renaming.parent === parent && renameRow(d, renaming),
+      ...subs.map(f => {
+        const shut = collapsed.has(f);
+        if (renaming && renaming.path === f) return renameRow(d, renaming);
+        return html`<${React.Fragment} key=${'f:' + f}>
+          <div className=${'tr' + isSel('f', f)} style=${pad(d)} onClick=${() => setSel({ t: 'f', id: f })} onContextMenu=${e => ctxMenu(e, folderMenu(f), { t: 'f', id: f })}
+            onDoubleClick=${() => setCollapsed(c => { const n = new Set(c); n.has(f) ? n.delete(f) : n.add(f); return n; })}>
+            <span className="chev" onClick=${e => { e.stopPropagation(); setCollapsed(c => { const n = new Set(c); n.has(f) ? n.delete(f) : n.add(f); return n; }); }}>${shut ? '▸' : '▾'}</span>
+            <span>📁</span><span className="lbl">${last(f)}</span>
+          </div>
+          ${!shut && folderRows(f, d + 1)}
+        <//>`;
+      }),
+      ...ss.map(s => sessionRow(s, d)),
+    ];
+  };
+  const fl = filter.toLowerCase();
+
+  const scenes = {
+    'Edit web1': () => act.edit(byAlias('web1')),
+    'Edit db1 (TPM user clash)': () => act.edit(byAlias('db1')),
+    'Edit ubuntu (local shell)': () => act.edit(byAlias('ubuntu')),
+    'Edit mac-zsh (missing shell)': () => act.edit(byAlias('mac-zsh')),
+    'New SSH session': () => act.newSsh(selFolder()),
+    'New local shell': () => act.newLocal(selFolder()),
+    'Duplicate web1': () => act.duplicate(byAlias('web1')),
+    'Move web1 (F7)': () => act.move(byAlias('web1')),
+    'Delete folder prod': () => act.delFolder('work/prod'),
+    'Delete web1': () => act.del(byAlias('web1')),
+  };
+
+  return html`<div className="win">
+    <div className="tree" tabIndex=${0} onKeyDown=${treeKey}>
+      <div className="treetop">
+        <input className="in" placeholder="Filter" value=${filter} onChange=${e => setFilter(e.target.value)}/>
+        <button onClick=${e => { const r = e.currentTarget.getBoundingClientRect(); setMenu({ x: r.left, y: r.bottom + 4, items: [
+          ['SSH session', '', () => act.newSsh(selFolder())], ['Local shell session', '', () => act.newLocal(selFolder())], ['Folder', '', () => act.newFolder(selFolder())]] }); }}>+ New</button>
+      </div>
+      <div className="rows">
+        ${fl ? sessions.filter(s => s.alias.includes(fl)).map(s => sessionRow(s, 0)) : html`<${React.Fragment}>
+          <div className="group">Unsaved</div>
+          ${tabRows([['pwsh', 'Projects']], 0)}
+          ${orphans.map(([a, f], i) => html`<div key=${'o' + i} className="tr" style=${pad(0)}><span className="lbl">${a}<span className="muted"> ${f} · deleted</span></span></div>`)}
+          ${hand.map(h => html`<div key=${h} className=${'tr' + isSel('h', h)} style=${pad(0)} onClick=${() => setSel({ t: 'h', id: h })} onContextMenu=${e => ctxMenu(e, handMenu(h), { t: 'h', id: h })}>
+            <span className="edge" style=${{ background: 'var(--ssh)' }}></span><span className="lbl">${h}</span>
+            <span className="right muted" title="Hand-written host, read-only">🔒</span></div>`)}
+          <div style=${{ height: 6 }}></div>
+          ${folderRows('', 0)}
+        <//>`}
+      </div>
+    </div>
+    <div className="main">
+      <div className="hbar">web1 · deploy@10.0.1.11</div>
+      <div className="termrow">
+        <pre className="term mono">${`deploy@web1:~/app$ git pull\nAlready up to date.\ndeploy@web1:~/app$ ▌`}</pre>
+        <div className="strip"><span>▸</span><span>SFTP · web1</span></div>
+      </div>
+    </div>
+
+    ${menu && html`<div className="menu" style=${{ left: menu.x, top: menu.y }}>
+      ${menu.items.map((it, i) => it === '-' ? html`<div key=${i} className="msep"></div>`
+        : html`<div key=${i} className=${'mi' + (it[3] ? ' danger' : '')} onClick=${() => { setMenu(null); it[2](); }}><span>${it[0]}</span><span className="k">${it[1]}</span></div>`)}
+    </div>`}
+
+    ${dlg && dlg.type === 'session' && html`<${SessionDialog} key=${dlg.id} init=${dlg.init} mode=${dlg.mode} variant=${variant} localMode=${localMode}
+      ctx=${ctx} outcome=${outcome} onClose=${() => setDlg(null)} onSave=${(f, orig) => {
+        const { picked, ...clean } = f;
+        setSessions(ss => orig ? ss.map(s => s.alias === orig.alias ? { ...clean, tabs: s.tabs } : s) : [...ss, { ...clean, tabs: [] }]);
+        setDlg(null);
+        setToast({ title: `Saved ${f.alias}`, body: (f.kind === 'ssh' ? `~/.ssh/slop-term.conf\n${hostBlock(f)}\n\n` : '') + `~/.ssh/slop-term.json\n${sidecar(f)}` });
+      }}/>`}
+    ${dlg && dlg.type === 'move' && html`<${MovePicker} key=${dlg.id} ...${dlg} folders=${folders} onClose=${() => setDlg(null)}/>`}
+    ${dlg && dlg.type === 'delete' && html`<${ConfirmDelete} key=${dlg.id} ...${dlg} onClose=${() => setDlg(null)}/>`}
+
+    ${toast && html`<div className="toast"><div className="hrow"><b className="grow">${toast.title}</b><button className="xs" onClick=${() => setToast(null)}>✕</button></div>
+      ${toast.body && html`<pre className="mono">${toast.body}</pre>`}</div>`}
+
+    <div className="switcher">
+      <button onClick=${() => cycle(-1)}>←</button>
+      <span className="v">${variant} · ${VARIANTS[variant].name}</span>
+      <button onClick=${() => cycle(1)}>→</button>
+      <span className="sep"></span>
+      <span>Local shell:</span>
+      ${[['same', 'same dialog'], ['own', 'own dialog']].map(([k, l]) => html`<button key=${k} className=${localMode === k ? 'on' : ''} onClick=${() => setLocalMode(k)}>${l}</button>`)}
+      <span className="sep"></span>
+      <span>Test:</span>
+      <select value=${outcome} onChange=${e => setOutcome(e.target.value)}>
+        <option value="ok">works</option><option value="newkey">unknown host key</option><option value="changed">changed host key</option>
+        <option value="auth">login refused</option><option value="unreach">unreachable</option>
+      </select>
+      <span className="sep"></span>
+      <select value="" onChange=${e => { const f = scenes[e.target.value]; if (f) f(); }}>
+        <option value="">Open a scene…</option>${Object.keys(scenes).map(k => html`<option key=${k}>${k}</option>`)}
+      </select>
+      <button onClick=${() => setTheme(theme === 'dark' ? 'light' : 'dark')}>${theme === 'dark' ? 'Light' : 'Dark'}</button>
+    </div>
+  </div>`;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(html`<${App}/>`);
+</script>
+</body>
+</html>
