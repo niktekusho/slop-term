@@ -29,3 +29,5 @@ Decided with the user on 2026-10-20. The import shows a preview and writes nothi
 12. Session types: WSL sessions (type 14) are imported as local shell sessions, in the shape "Local shell sessions" decides. Every other non-SSH type is skipped and listed in the preview.
 
 The user's file, checked on 2026-10-20, has 19 SSH sessions, 1 WSL session, 7 folders one level deep, 17 names with spaces, 1 `.ppk` key, no jump hosts, no proxies and no custom ports. 4 sessions match hosts in `~/.ssh/config`: 3 are identical, and 1 differs only by user.
+
+Correction (2026-10-22, from "Saved session dialog look" point 5): every imported SSH session also gets `ServerAliveInterval 15` in its host block.

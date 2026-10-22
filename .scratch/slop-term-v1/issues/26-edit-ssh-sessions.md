@@ -36,3 +36,5 @@ Changes "Saving passwords typed for `ssh <host>`" point 4, "Session tree look" p
 Glossary: Saved session now means a Managed host or a Local shell session. Hand-written host, SSH config and Tab change to match.
 
 Rejected: Sidecar fields on Hand-written hosts, since "Move into slop-term" is one click and loses nothing; cut and paste as the move shortcut, since without multi-select it gains nothing over the picker.
+
+Correction (2026-10-22, from "Saved session dialog look"): point 2's field list is final. Point 3's text box becomes one `-o` row per line under the `ssh` command line, each with a short description, and new sessions start with `ServerAliveInterval 15`. Point 15: a Local shell session has its own smaller dialog.

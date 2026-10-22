@@ -31,3 +31,5 @@ Rejected: `SSH_ASKPASS` with `force`, which moves every prompt out of the termin
 Out of scope for v1: a "set up key login" action that creates a key and adds it to the remote `authorized_keys`. The user wants it after v1, because they look up the steps every time. Shared accounts would need a per-host way to skip it.
 
 Correction (2026-10-22, from "Creating and editing SSH Saved sessions" point 9): point 4 changes. Hand-written hosts no longer carry a Credential reference, so a typed `ssh` to one gets no "Save to" choice. The pane says "Move web1 into slop-term to save its password" instead. A Managed host with no reference still gets the reference attached.
+
+Correction (2026-10-22, from "Saved session dialog look" point 5): the Managed host created from a typed `ssh` starts with `ServerAliveInterval 15` in its host block.

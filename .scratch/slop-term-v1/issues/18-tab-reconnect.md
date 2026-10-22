@@ -26,3 +26,5 @@ Decided with the user on 2026-10-21.
 9. Typed `ssh`: on a local shell Tab, the SFTP pane's own connection can drop while the terminal's `ssh` keeps running, or the other way round. The pane greys out and shows its own Reconnect button. R in the terminal doesn't apply, because the local shell didn't drop. If the typed `ssh` has exited, the rules from "SFTP pane for `ssh <host>` typed in a local shell Tab" apply.
 
 Glossary: Tab now says it stays open after its connection drops or its shell exits.
+
+Correction (2026-10-22, from "Saved session dialog look" point 6): point 1 changes. The keepalive interval is `ServerAliveInterval` from `ssh -G` as it is, with no 15 s cap, and 15 s only when it is unset. A Tab and a typed `ssh` to the same alias now behave alike. New Saved sessions start with `ServerAliveInterval 15`.
