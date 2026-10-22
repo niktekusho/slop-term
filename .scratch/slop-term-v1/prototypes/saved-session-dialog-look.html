@@ -1,8 +1,10 @@
 <!doctype html>
 <!--
   PROTOTYPE, throwaway. Answers "Saved session dialog look" (.scratch/slop-term-v1/issues/27-saved-session-dialog-look.md).
-  Four layouts of the SSH Saved session dialog, switchable with ?variant=A|B|C|D, the bar at the bottom, or the arrow keys.
-  The bar also sets how a Local shell session's form shows (inside the same dialog, or its own small one), the Test outcome and the theme.
+  Round 2: three hybrids of B ("Form + config") and D ("Command line"), plus B and D for comparison,
+  switchable with ?variant=E|F|G|B|D, the bar at the bottom, or the arrow keys. Round 1 (A to D) is commit d28de89.
+  Local shell sessions use their own small dialog. New SSH sessions start with "ServerAliveInterval 15".
+  The bar also sets the Test outcome and the theme.
   Right-click tree rows for their menus, use the New button, or pick a scene in the bar. Fake data, nothing is written to disk.
 -->
 <html lang="en">
@@ -152,6 +154,24 @@
   .inl { font:inherit; color:var(--fg); background:var(--inset); border:none; border-bottom:1px solid var(--muted); border-radius:3px 3px 0 0; padding:1px 4px; }
   button.xs { padding:0 6px; font-size:11px; }
 
+  /* round 2 */
+  .flag { font-family:"JetBrains Mono", Consolas, monospace; font-size:12px; color:var(--ok); }
+  .frow > label .flag { margin-left:6px; }
+  .cmd2 { border:1px solid var(--line); background:var(--canvas); border-radius:6px; padding:8px 10px; display:flex; flex-direction:column; gap:4px; }
+  .cmd2 .line { display:flex; flex-wrap:wrap; gap:4px 8px; align-items:center; line-height:26px; }
+  .orow { display:grid; grid-template-columns:22px minmax(220px, 280px) 1fr auto; gap:8px; align-items:center; }
+  .inl.mono { font-family:"JetBrains Mono", Consolas, monospace; font-size:12px; }
+  .orow .hint { color:var(--muted); font:12px system-ui, "Segoe UI", sans-serif; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .orow .msg { grid-column:2 / -1; margin-top:-2px; }
+  .orow .inl { width:100%; }
+  .cmdout { border:1px dashed var(--line); border-radius:6px; padding:8px 10px; background:var(--inset); display:flex; gap:8px; align-items:flex-start; }
+  .cmdout code { white-space:pre-wrap; word-break:break-all; flex:1; }
+  .parsed { width:100%; border-collapse:collapse; margin-top:8px; }
+  .parsed td { padding:3px 8px; border-top:1px solid var(--line); vertical-align:top; }
+  .parsed td:first-child { white-space:nowrap; }
+  .parsed td:nth-child(3) { font-size:12px; width:40%; }
+  .parsed tr.bad td { color:var(--danger); } .parsed tr.warn td { color:var(--warn); }
+
   .switcher { position:fixed; bottom:14px; left:50%; transform:translateX(-50%); z-index:70; background:#000; color:#fff; border:1px solid #444; border-radius:999px; padding:6px 12px; display:flex; gap:12px; align-items:center; box-shadow:0 4px 16px #0008; white-space:nowrap; font-size:12px; }
   .switcher button, .switcher select { background:#222; color:#fff; border:1px solid #555; border-radius:999px; padding:2px 10px; font:inherit; }
   .switcher button.on { background:#fff; color:#000; }
@@ -185,12 +205,29 @@ const SESSIONS0 = [
         cred: { p: 'TPM', entry: '482', name: 'db1 dba', tpmUser: 'postgres', kind: 'passphrase' } }),
   ssh({ alias: 'eu-app', host: 'eu-app.example.net', user: 'deploy', folder: 'work/prod/eu', colour: 'Orange', cred: { p: 'TPM', entry: '517', name: 'eu-app deploy', tpmUser: 'deploy', kind: 'password' } }),
   ssh({ alias: 'stg-web', host: '10.0.2.11', user: 'deploy', folder: 'work/staging', colour: 'Yellow', cred: { p: 'Keychain', entry: 'slop-term/stg-web', kind: 'password' } }),
+  ssh({ alias: 'legacy-box', host: '10.0.3.7', user: 'root', folder: 'work/staging', colour: 'Grey', cred: { p: 'Keychain', entry: 'slop-term/legacy-box', kind: 'password' },
+        other: 'ServerAliveInterval 15\nServerAliveCountMax 4\nForwardAgent yes\nCompression yes\nHostKeyAlgorithms +ssh-rsa\nPubkeyAcceptedAlgorithms +ssh-rsa\nSetEnv LANG=C.UTF-8' }),
   ssh({ alias: 'nas', host: '192.168.1.5', user: 'nik', folder: 'home', cred: { p: 'Keychain', entry: 'slop-term/nas', kind: 'password' }, dupLine: 12 }),
   local({ alias: 'ubuntu', shell: 'wsl', cwd: '~/src', folder: 'home', tabs: [['src', '']] }),
   local({ alias: 'api-shell', shell: 'pwsh', cmd: 'docker exec -it api bash', folder: 'home/containers', colour: 'Blue' }),
   local({ alias: 'mac-zsh', shell: 'zsh', folder: 'home' }),
 ];
 const HAND0 = ['pi', 'router'];
+const NEW_SESSION_OPTIONS = 'ServerAliveInterval 15';
+const HINTS = {
+  serveraliveinterval: 'Keepalive every N seconds. Tabs use it too.',
+  serveralivecountmax: 'Missed keepalives before the connection counts as dropped',
+  forwardagent: 'Lets the host use the keys in your local SSH agent',
+  compression: 'Compresses traffic. Helps on slow links.',
+  hostkeyalgorithms: 'Host key types to accept. +ssh-rsa allows old hosts.',
+  pubkeyacceptedalgorithms: 'Key types to log in with. +ssh-rsa allows old hosts.',
+  setenv: 'Sets an environment variable on the host, if the host allows it',
+  stricthostkeychecking: 'What to do with an unknown host key',
+  connecttimeout: 'Seconds to wait for the host to answer',
+  identitiesonly: 'Offer only the key file, not every key in the agent',
+  proxyjump: 'Connects through a jump host. Not in v1.',
+};
+const hint = line => HINTS[line.trim().split(/[\s=]/)[0].toLowerCase()];
 
 // ---------- helpers ----------
 const fname = p => p ? p.split('/').join(' / ') : '(top level)';
@@ -260,7 +297,6 @@ function launchLine(f) {
 
 // ---------- shared fields ----------
 const Row = ({ l, children }) => html`<div className="frow"><label>${l}</label><div>${children}</div></div>`;
-const Sec = ({ t }) => html`<div className="sec">${t}</div>`;
 const Msg = ({ m }) => m ? html`<div className=${'msg ' + m.t}>${m.text}</div>` : null;
 
 function AliasField({ form, set, ctx, placeholder = 'e.g. web1' }) {
@@ -301,12 +337,6 @@ function ColourPicker({ value, onChange }) {
     <button className=${'sw none' + (!value ? ' on' : '')} title="No colour" onClick=${() => onChange('')}></button>
     ${COLOURS.map(c => html`<button key=${c} className=${'sw' + (value === c ? ' on' : '')} title=${c} style=${{ background: `var(--c-${c})` }} onClick=${() => onChange(c)}></button>`)}
     <span className="muted small">${value || 'None'}</span>
-  </div>`;
-}
-function OtherOptions({ value, onChange, opt, rows = 4 }) {
-  return html`<div>
-    <textarea className="in mono" rows=${rows} spellCheck=${false} value=${value} placeholder="Key value, one per line" onChange=${e => onChange(e.target.value)}/>
-    ${opt.map(o => html`<div key=${o.line} className=${'msg ' + (o.err ? 'bad' : 'warn')}>Line ${o.line}: ${o.err || o.warn}</div>`)}
   </div>`;
 }
 
@@ -449,25 +479,83 @@ function TestList({ test, empty }) {
   </div>`;
 }
 
-// ---------- variant A: stacked form ----------
-function VarA({ form, set, ctx, test, opt }) {
-  const n = form.other.split('\n').filter(l => l.trim()).length;
+// ---------- round 2 shared bits ----------
+const inl = (form, set, k, ph, title) => html`<input className="inl mono" size=${Math.max((form[k] || ph).length, 2)} value=${form[k]} placeholder=${ph} title=${title}
+  onChange=${e => set({ [k]: k === 'port' ? e.target.value.replace(/\D/g, '') : e.target.value, picked: false })}/>`;
+const optLines = f => f.other.split('\n').filter(l => l.trim()).map(l => l.trim());
+function cmdLine(f) {
+  const o = optLines(f).map(l => { const m = l.match(/^(\S+)\s*=?\s*(.*)$/); return ` -o ${m[1]}=${/\s/.test(m[2]) ? `"${m[2]}"` : m[2]}`; }).join('');
+  return `ssh${f.port ? ` -p ${f.port}` : ''}${f.key ? ` -i ${f.key}` : ''}${o} ${f.user ? f.user + '@' : ''}${f.host || f.alias || 'host'}`;
+}
+const ClashMsg = ({ form, set }) => tpmClash(form) && html`<div className="msg bad">TPM #${form.cred.entry} has user name ${form.cred.tpmUser}. Connecting is blocked until they match. <a onClick=${() => set({ user: form.cred.tpmUser })}>Use ${form.cred.tpmUser}</a></div>`;
+// One row per Other options line. A blank row at the end lives in local state until something is typed in it.
+function OptionRows({ form, set, opt, prefix = '-o' }) {
+  const [blank, setBlank] = useState(false);
+  const lines = form.other === '' ? [] : form.other.split('\n');
+  const setLine = (i, v) => {
+    if (i === lines.length) { set({ other: form.other === '' ? v : `${form.other}\n${v}` }); setBlank(false); return; }
+    const l = [...lines]; l[i] = v; set({ other: l.join('\n') });
+  };
+  const rows = blank ? [...lines, ''] : lines;
+  return html`<div className="stack" style=${{ gap: 4 }}>
+    ${rows.map((l, i) => {
+      const o = opt.find(x => x.line === i + 1);
+      return html`<div key=${i} className="orow">
+        <span className="flag">${prefix}</span>
+        <input className="inl mono" value=${l} placeholder="Key value" spellCheck=${false} autoFocus=${i === lines.length} onChange=${e => setLine(i, e.target.value)}/>
+        <span className="hint" title=${hint(l) || ''}>${hint(l) || ''}</span>
+        <button className="xs" title="Remove" onClick=${() => i === lines.length ? setBlank(false) : set({ other: lines.filter((_, j) => j !== i).join('\n') })}>✕</button>
+        ${o && html`<div className=${'msg ' + (o.err ? 'bad' : 'warn')}>${o.err || o.warn}</div>`}
+      </div>`;
+    })}
+    <div><button className="xs" onClick=${() => setBlank(true)}>+ option</button></div>
+  </div>`;
+}
+
+// ---------- variant E: B's rows, D's command line ----------
+function VarE({ form, set, ctx, test, opt }) {
   return html`<div className="stack">
-    <${Sec} t="Session"/>
     <${Row} l="Alias"><${AliasField} form=${form} set=${set} ctx=${ctx}/><//>
     <${Row} l="Folder"><${FolderSelect} value=${form.folder} onChange=${v => set({ folder: v })} folders=${ctx.folders}/><//>
     <${Row} l="Colour"><${ColourPicker} value=${form.colour} onChange=${v => set({ colour: v })}/><//>
-    <${Sec} t="Connection"/>
-    <${Row} l="Host name"><${HostInput} form=${form} set=${set}/><//>
-    <${Row} l="Port"><${PortInput} form=${form} set=${set}/><//>
-    <${Row} l="User"><${UserField} form=${form} set=${set}/><//>
-    <${Sec} t="Login"/>
-    <${Row} l="Key file"><${KeyField} form=${form} set=${set}/><//>
+    <${Row} l="Connect">
+      <div className="cmd2 mono">
+        <div className="line">
+          <span className="kw" style=${{ color: 'var(--ok)', fontWeight: 700 }}>ssh</span>
+          <span className="muted">-p</span>${inl(form, set, 'port', '22', 'Port, from ssh -G')}
+          <span className="muted">-i</span>${inl(form, set, 'key', '~/.ssh/id_ed25519', 'IdentityFile, from ssh -G')}
+          <button className="xs" title="Pick a key file" onClick=${() => set({ key: '~/.ssh/id_ed25519', picked: true })}>…</button>
+          <span>${inl(form, set, 'user', ME, 'User, from ssh -G')}@${inl(form, set, 'host', form.alias || 'host', 'HostName. Empty: the alias')}</span>
+        </div>
+        <${OptionRows} form=${form} set=${set} opt=${opt}/>
+      </div>
+      <div className="note">Typing <code>ssh ${form.alias || '<alias>'}</code> in a shell runs this command.</div>
+      <${Msg} m=${keyNote(form.key, form.picked)}/>
+      <${ClashMsg} form=${form} set=${set}/>
+    <//>
     <${Row} l="Secret"><${CredField} form=${form} set=${set} ctx=${ctx}/><//>
-    <details open=${!!form.other || opt.length > 0}>
-      <summary>Other options${n ? ` · ${plural(n, 'line')}` : ''}</summary>
-      <${OtherOptions} value=${form.other} onChange=${v => set({ other: v })} opt=${opt}/>
-    </details>
+    <${TestList} test=${test}/>
+  </div>`;
+}
+
+// ---------- variant F: B's form, flags on the labels, the command it makes ----------
+function VarF({ form, set, ctx, test, opt }) {
+  const L = (t, f) => html`${t}<span className="flag">${f}</span>`;
+  const cmd = cmdLine(form);
+  return html`<div className="stack">
+    <${Row} l="Alias"><${AliasField} form=${form} set=${set} ctx=${ctx}/><//>
+    <${Row} l=${L('Host', '@')}><${HostInput} form=${form} set=${set}/><//>
+    <${Row} l=${L('Port', '-p')}><${PortInput} form=${form} set=${set}/><//>
+    <${Row} l=${L('User', '-l')}><${UserField} form=${form} set=${set}/><//>
+    <${Row} l=${L('Key file', '-i')}><${KeyField} form=${form} set=${set}/><//>
+    <${Row} l=${L('Options', '-o')}><${OptionRows} form=${form} set=${set} opt=${opt} prefix=""/><//>
+    <${Row} l="Secret"><${CredField} form=${form} set=${set} ctx=${ctx}/><//>
+    <${Row} l="Folder"><${FolderSelect} value=${form.folder} onChange=${v => set({ folder: v })} folders=${ctx.folders}/><//>
+    <${Row} l="Colour"><${ColourPicker} value=${form.colour} onChange=${v => set({ colour: v })}/><//>
+    <${Row} l="Command">
+      <div className="cmdout"><code><span className="flag">ssh ${form.alias || '<alias>'}</span><span className="muted">${'  runs\n'}</span>${cmd}</code>
+        <button className="xs" onClick=${() => navigator.clipboard && navigator.clipboard.writeText(cmd)}>Copy</button></div>
+    <//>
     <${TestList} test=${test}/>
   </div>`;
 }
@@ -500,51 +588,57 @@ function VarB({ form, set, ctx, test, opt }) {
   </div>`;
 }
 
-// ---------- variant C: sections in a side list ----------
-function VarC({ form, set, ctx, test, opt }) {
-  const [sec, setSec] = useState('conn');
-  const runId = test.t && test.t.steps;
-  useEffect(() => { if (runId) setSec('test'); }, [runId]);
-  const n = form.other.split('\n').filter(l => l.trim()).length;
-  const secs = [
-    ['conn', 'Connection', !!(form.alias && aliasError(form.alias, ctx))],
-    ['login', 'Login', tpmClash(form)],
-    ['place', 'Folder and colour'],
-    ['other', `Other options${n ? ` (${n})` : ''}`, opt.some(o => o.err)],
-    ['test', 'Test', !!(test.t && test.t.reason)],
-  ];
-  return html`<div style=${{ display: 'flex', flexDirection: 'column', height: '100%', margin: -14 }}>
-    <div className="summary">
-      ${form.colour && html`<span className="dot" style=${{ background: `var(--c-${form.colour})` }}></span>`}
-      <b className="mono">${form.alias || 'new session'}</b>
-      <span className="muted mono">${form.user || ME}@${form.host || form.alias || '?'}:${form.port || 22}</span>
-      <span className="muted small" style=${{ marginLeft: 'auto' }}>${fname(form.folder)}</span>
-    </div>
-    <div className="secs grow">
-      <div className="nav">${secs.map(([k, l, err]) => html`<div key=${k} className=${sec === k ? 'on' : ''} onClick=${() => setSec(k)}>${l}${err && html`<span className="err"></span>`}</div>`)}</div>
-      <div className="secbody">
-        ${sec === 'conn' && html`<div className="stack">
-          <${Row} l="Alias"><${AliasField} form=${form} set=${set} ctx=${ctx}/><//>
-          <${Row} l="Host name"><${HostInput} form=${form} set=${set}/><//>
-          <${Row} l="Port"><${PortInput} form=${form} set=${set}/><//>
-          <${Row} l="User"><${UserField} form=${form} set=${set}/><//>
-        </div>`}
-        ${sec === 'login' && html`<div className="stack">
-          <${Row} l="Key file"><${KeyField} form=${form} set=${set}/><//>
-          <${Row} l="Secret"><${CredField} form=${form} set=${set} ctx=${ctx}/><//>
-          ${tpmClash(form) && html`<${Row} l="User"><${UserField} form=${form} set=${set}/><//>`}
-        </div>`}
-        ${sec === 'place' && html`<div className="stack">
-          <${Row} l="Folder"><${FolderSelect} value=${form.folder} onChange=${v => set({ folder: v })} folders=${ctx.folders}/><//>
-          <${Row} l="Colour"><${ColourPicker} value=${form.colour} onChange=${v => set({ colour: v })}/><//>
-        </div>`}
-        ${sec === 'other' && html`<div className="stack">
-          <div className="note">Every other line of this host's block in ~/.ssh/slop-term.conf, one Key value per line.</div>
-          <${OtherOptions} value=${form.other} onChange=${v => set({ other: v })} opt=${opt} rows=${10}/>
-        </div>`}
-        ${sec === 'test' && html`<${TestList} test=${test} empty="Press Test to connect with these values without saving them."/>`}
-      </div>
-    </div>
+// ---------- variant G: type or paste one ssh command ----------
+function parseCmd(text) {
+  const toks = (text.match(/"[^"]*"|'[^']*'|\S+/g) || []).map(t => t.replace(/^(["'])(.*)\1$/, '$2'));
+  const f = { host: '', port: '', user: '', key: '' }, opts = [], rows = [];
+  let dest = false;
+  if (toks[0] === 'ssh') toks.shift();
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i], next = () => toks[++i] || '';
+    if (t === '-p') { const v = next(); f.port = v; rows.push(/^\d+$/.test(v) ? [`-p ${v}`, `Port ${v}`, 'Port to connect to'] : [`-p ${v}`, 'Port must be a number', '', 'bad']); }
+    else if (t === '-i') { const v = next(); f.key = v; rows.push([`-i ${v}`, `IdentityFile ${v}`, 'Key file to log in with']); }
+    else if (t === '-l') { const v = next(); f.user = v; rows.push([`-l ${v}`, `User ${v}`, 'User to log in as']); }
+    else if (t === '-o' || t.startsWith('-o')) {
+      const v = t === '-o' ? next() : t.slice(2);
+      const line = v.replace(/^(\w+)\s*=\s*/, '$1 ');
+      opts.push(line); rows.push([`-o ${v}`, line, hint(line) || '']);
+    }
+    else if (t === '-A') { opts.push('ForwardAgent yes'); rows.push(['-A', 'ForwardAgent yes', HINTS.forwardagent]); }
+    else if (t === '-C') { opts.push('Compression yes'); rows.push(['-C', 'Compression yes', HINTS.compression]); }
+    else if (t === '-J') { const v = next(); opts.push(`ProxyJump ${v}`); rows.push([`-J ${v}`, `ProxyJump ${v}`, HINTS.proxyjump, 'warn']); }
+    else if (/^-[LRD]$/.test(t)) { const v = next(); rows.push([`${t} ${v}`, "Port forwarding isn't in v1", '', 'bad']); }
+    else if (t.startsWith('-')) rows.push([t, `Unknown or unsupported flag ${t}`, '', 'bad']);
+    else if (!dest) {
+      dest = true;
+      const at = t.lastIndexOf('@');
+      if (at > 0) { f.user = t.slice(0, at); f.host = t.slice(at + 1); rows.push([t, `User ${f.user}, HostName ${f.host}`, 'Who and where']); }
+      else { f.host = t; rows.push([t, `HostName ${t}`, 'Where to connect']); }
+    }
+    else rows.push([t, 'A remote command. Saved sessions don\'t store one.', '', 'bad']);
+  }
+  return { fields: { ...f, other: opts.join('\n') }, rows };
+}
+function VarG({ form, set, ctx, test, opt }) {
+  const [text, setText] = useState(() => cmdLine(form));
+  const { rows } = parseCmd(text);
+  const change = v => { setText(v); set({ ...parseCmd(v).fields, picked: false }); };
+  return html`<div className="stack">
+    <${Row} l="Alias"><${AliasField} form=${form} set=${set} ctx=${ctx}/><//>
+    <${Row} l="Command">
+      <textarea className="in mono" rows=${4} spellCheck=${false} value=${text} onChange=${e => change(e.target.value)} placeholder="ssh -p 2222 -i ~/.ssh/key deploy@10.0.1.11"/>
+      <div className="note">Type or paste an ssh command. Empty parts use what <code>ssh -G</code> gives: port 22, user ${ME}.</div>
+      <table className="parsed mono"><tbody>
+        ${rows.map((r, i) => html`<tr key=${i} className=${r[3] || ''}><td>${r[0]}</td><td>${r[1]}</td><td className="muted" style=${{ fontFamily: 'system-ui' }}>${r[2]}</td></tr>`)}
+      </tbody></table>
+      ${opt.map(o => html`<div key=${o.line} className=${'msg ' + (o.err ? 'bad' : 'warn')}>${optLines(form)[o.line - 1] || ''}: ${o.err || o.warn}</div>`)}
+      <${Msg} m=${keyNote(form.key, form.picked)}/>
+      <${ClashMsg} form=${form} set=${set}/>
+    <//>
+    <${Row} l="Secret"><${CredField} form=${form} set=${set} ctx=${ctx}/><//>
+    <${Row} l="Folder"><${FolderSelect} value=${form.folder} onChange=${v => set({ folder: v })} folders=${ctx.folders}/><//>
+    <${Row} l="Colour"><${ColourPicker} value=${form.colour} onChange=${v => set({ colour: v })}/><//>
+    <${TestList} test=${test}/>
   </div>`;
 }
 
@@ -578,10 +672,11 @@ function VarD({ form, set, ctx, test, opt }) {
 }
 
 const VARIANTS = {
-  A: { name: 'Stacked form', C: VarA, width: 560 },
-  B: { name: 'Form + config', C: VarB, width: 920 },
-  C: { name: 'Sections', C: VarC, width: 680, height: 520 },
-  D: { name: 'Command line', C: VarD, width: 780 },
+  E: { name: 'Rows + command line', C: VarE, width: 780 },
+  F: { name: 'Flags on the form', C: VarF, width: 720 },
+  G: { name: 'Paste a command', C: VarG, width: 760 },
+  B: { name: 'Form + config (round 1)', C: VarB, width: 920 },
+  D: { name: 'Command line (round 1)', C: VarD, width: 780 },
 };
 const VKEYS = Object.keys(VARIANTS);
 
@@ -626,14 +721,13 @@ function Modal({ title, width, height, onClose, foot, children }) {
   </div>`;
 }
 
-function SessionDialog({ init, mode, variant, localMode, ctx, outcome, onClose, onSave }) {
+function SessionDialog({ init, mode, variant, ctx, outcome, onClose, onSave }) {
   const [form, setForm] = useState(init);
   const set = patch => setForm(f => ({ ...f, ...patch }));
   const test = useTest(form, outcome);
   const fctx = { ...ctx, original: mode === 'edit' ? init : null };
   const opt = form.kind === 'ssh' ? parseOther(form.other) : [];
   const canSave = !aliasError(form.alias, fctx) && !opt.some(o => o.err);
-  const switchKind = kind => { test.clear(); setForm(f => ({ ...(kind === 'ssh' ? ssh({}) : local({})), alias: f.alias, folder: f.folder, colour: f.colour })); };
   const title = mode === 'edit' ? html`Edit ${init.alias} <span className="muted small">${init.kind === 'ssh' ? 'SSH session' : 'local shell session'}</span>`
     : form.kind === 'ssh' ? 'New SSH session' : 'New local shell session';
   const foot = html`<div className="foot">
@@ -642,15 +736,10 @@ function SessionDialog({ init, mode, variant, localMode, ctx, outcome, onClose, 
     <button onClick=${onClose}>Cancel</button>
     <button className="primary" disabled=${!canSave} onClick=${() => onSave(form, mode === 'edit' ? init : null)}>Save</button>
   </div>`;
-  if (form.kind === 'local' && localMode === 'own')
+  if (form.kind === 'local')
     return html`<${Modal} title=${title} width=${460} onClose=${onClose} foot=${foot}><${LocalForm} form=${form} set=${set} ctx=${fctx}/><//>`;
   const V = VARIANTS[variant];
-  return html`<${Modal} title=${title} width=${V.width} height=${form.kind === 'ssh' ? V.height : undefined} onClose=${onClose} foot=${foot}>
-    ${mode === 'new' && localMode === 'same' && html`<div className="seg kind">
-      ${[['ssh', 'SSH session'], ['local', 'Local shell session']].map(([k, l]) => html`<button key=${k} className=${form.kind === k ? 'on' : ''} onClick=${() => switchKind(k)}>${l}</button>`)}
-    </div>`}
-    ${form.kind === 'local' ? html`<${LocalForm} form=${form} set=${set} ctx=${fctx}/>` : html`<${V.C} form=${form} set=${set} ctx=${fctx} test=${test} opt=${opt}/>`}
-  <//>`;
+  return html`<${Modal} title=${title} width=${V.width} onClose=${onClose} foot=${foot}><${V.C} form=${form} set=${set} ctx=${fctx} test=${test} opt=${opt}/><//>`;
 }
 
 function MovePicker({ name, current, exclude, folders, onPick, onClose }) {
@@ -699,8 +788,7 @@ function ConfirmDelete({ title, lines, secrets, onConfirm, onClose }) {
 // ---------- app ----------
 function App() {
   const qv = new URLSearchParams(location.search).get('variant');
-  const [variant, setVariantRaw] = useState(VKEYS.includes(qv) ? qv : 'A');
-  const [localMode, setLocalMode] = useState('same');
+  const [variant, setVariantRaw] = useState(VKEYS.includes(qv) ? qv : 'E');
   const [outcome, setOutcome] = useState('ok');
   const [theme, setTheme] = useState(matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
   const [sessions, setSessions] = useState(SESSIONS0);
@@ -742,7 +830,7 @@ function App() {
   const act = {
     openTab: name => setToast({ title: `Opens a Tab on ${name}` }),
     edit: s => open({ type: 'session', mode: 'edit', init: s }),
-    newSsh: folder => open({ type: 'session', mode: 'new', init: ssh({ alias: '', folder }) }),
+    newSsh: folder => open({ type: 'session', mode: 'new', init: ssh({ alias: '', folder, other: NEW_SESSION_OPTIONS }) }),
     newLocal: folder => open({ type: 'session', mode: 'new', init: local({ alias: '', folder }) }),
     duplicate: s => open({ type: 'session', mode: 'new', init: { ...s, alias: nextFree(s.alias), tabs: [] } }),
     move: s => open({ type: 'move', name: s.alias, current: s.folder, onPick: f => { setSessions(ss => ss.map(x => x === s ? { ...x, folder: f } : x)); setDlg(null); } }),
@@ -896,6 +984,7 @@ function App() {
   const scenes = {
     'Edit web1': () => act.edit(byAlias('web1')),
     'Edit db1 (TPM user clash)': () => act.edit(byAlias('db1')),
+    'Edit legacy-box (7 options)': () => act.edit(byAlias('legacy-box')),
     'Edit ubuntu (local shell)': () => act.edit(byAlias('ubuntu')),
     'Edit mac-zsh (missing shell)': () => act.edit(byAlias('mac-zsh')),
     'New SSH session': () => act.newSsh(selFolder()),
@@ -939,7 +1028,7 @@ function App() {
         : html`<div key=${i} className=${'mi' + (it[3] ? ' danger' : '')} onClick=${() => { setMenu(null); it[2](); }}><span>${it[0]}</span><span className="k">${it[1]}</span></div>`)}
     </div>`}
 
-    ${dlg && dlg.type === 'session' && html`<${SessionDialog} key=${dlg.id} init=${dlg.init} mode=${dlg.mode} variant=${variant} localMode=${localMode}
+    ${dlg && dlg.type === 'session' && html`<${SessionDialog} key=${dlg.id} init=${dlg.init} mode=${dlg.mode} variant=${variant}
       ctx=${ctx} outcome=${outcome} onClose=${() => setDlg(null)} onSave=${(f, orig) => {
         const { picked, ...clean } = f;
         setSessions(ss => orig ? ss.map(s => s.alias === orig.alias ? { ...clean, tabs: s.tabs } : s) : [...ss, { ...clean, tabs: [] }]);
@@ -956,9 +1045,6 @@ function App() {
       <button onClick=${() => cycle(-1)}>←</button>
       <span className="v">${variant} · ${VARIANTS[variant].name}</span>
       <button onClick=${() => cycle(1)}>→</button>
-      <span className="sep"></span>
-      <span>Local shell:</span>
-      ${[['same', 'same dialog'], ['own', 'own dialog']].map(([k, l]) => html`<button key=${k} className=${localMode === k ? 'on' : ''} onClick=${() => setLocalMode(k)}>${l}</button>`)}
       <span className="sep"></span>
       <span>Test:</span>
       <select value=${outcome} onChange=${e => setOutcome(e.target.value)}>
