@@ -42,3 +42,5 @@ Correction (2026-10-21, from "KeePass provider details"): point 6 has a second e
 Correction (2026-10-21, from "Saving passwords typed for `ssh <host>`"): in point 5, keychain is the default on every "Save to" choice.
 
 Correction (2026-10-21, from "Saving passwords typed for `ssh <host>`" point 10): in point 4, the app no longer deletes a keychain entry on its own. Deleting the last Saved session that points at an entry asks, with an unticked checkbox, whether to delete the secret too.
+
+Correction (2026-10-22, from "Creating and editing SSH Saved sessions" point 9): in point 9, the Hand-written host case no longer exists, because only Managed hosts carry a Credential reference.

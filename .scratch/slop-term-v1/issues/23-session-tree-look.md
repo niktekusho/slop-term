@@ -32,3 +32,5 @@ The user may revisit any of these details later.
 Rejected: B ("Rail + numbers"), with folders flattened to breadcrumb headers and a rail joining each session to its Tabs, and C ("Two-line rows"), with `user@host` and the full folder on a second line.
 
 Prototype: `.scratch/slop-term-v1/prototypes/session-tree-look.html` on the local branch `prototype/session-tree-look` (commit e94e570). It is never merged.
+
+Correction (2026-10-22, from "Creating and editing SSH Saved sessions" point 9): in points 6 and 9, Hand-written hosts move into the "Unsaved" group, after unsaved local shell Tabs and Tabs whose Saved session was deleted, A to Z, each with its lock. A Managed host with no Sidecar entry sits at the tree root.

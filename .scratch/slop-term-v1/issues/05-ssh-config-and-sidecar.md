@@ -22,3 +22,5 @@ Decided with the user on 2026-10-19.
 6. The app follows `Include` and ignores `Match`, showing a warning when it finds a `Match` block. The `ssh-config` library does not follow `Include`, so the app does.
 7. Sync covers `slop-term.conf` and `slop-term.json` only. Key paths are written as `~/.ssh/<name>`, which OpenSSH expands on both systems. The user copies key files between machines by hand. `~/.ssh/config` stays per-machine.
 8. No data loss: before every write the app re-reads the file and applies its change to the fresh copy. If the host it is changing was edited or removed since it last read the file, it stops and shows the conflict. Losing the spacing before end-of-line comments in the Managed config (a `ssh-config` library limit) is acceptable.
+
+Correction (2026-10-22, from "Creating and editing SSH Saved sessions" points 6 and 9): point 3's Sidecar file covers Managed hosts and Local shell sessions only, and it stores a folder list so empty folders survive. Point 4's "host with no Sidecar entry shows at the top of the tree" becomes: a Managed host with no Sidecar entry sits at the tree root, and Hand-written hosts sit in the "Unsaved" group.
