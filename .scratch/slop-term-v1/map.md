@@ -6,6 +6,8 @@ Label: wayfinder:map
 
 A v1 spec for a personal, cross-platform (Windows + macOS) GUI SSH client with unlimited Saved sessions, ready to build with nothing left to decide.
 
+Reached: [Spec: slop-term v1](spec.md).
+
 ## Notes
 
 - Personal tool for one user. No installers, auto-update, telemetry or onboarding in v1.
