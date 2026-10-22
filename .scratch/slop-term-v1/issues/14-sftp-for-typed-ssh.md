@@ -29,3 +29,5 @@ Decided with the user on 2026-10-21.
 Rejected: parsing typed input (misses aliases, history and scripts), relying on the remote's OSC 7 hostname alone, ControlMaster (Windows OpenSSH doesn't support it), and `SSH_ASKPASS` capture for v1 (moved to the "saving typed passwords" note in Not yet specified).
 
 Correction (2026-10-21, from "Saving passwords typed for `ssh <host>`"): point 4's "no save option" is replaced. The pane's prompt offers "Save to", with keychain as the default. Point 6 gains a fallback: if no alias matches, the app matches a Saved session on the resolved `HostName`, `Port` and `User`.
+
+Correction (2026-10-22, from "Host key checks" point 10): point 3 no longer connects as soon as `ssh` is detected. The pane waits for the first OSC 7 from the remote shell, which proves the terminal's `ssh` logged in, and then connects on its own. Until then it shows the "Browse files on alice@web1" button.
