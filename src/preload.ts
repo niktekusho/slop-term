@@ -1,5 +1,10 @@
-import { contextBridge, ipcRenderer } from 'electron';
-import type { Message, Profiler, Request } from './shared/ipc.ts';
+import { contextBridge, ipcRenderer, webFrame } from 'electron';
+import type {
+  Message,
+  Profiler,
+  Request,
+  WindowControls,
+} from './shared/ipc.ts';
 
 const profile = (method: keyof Profiler) => () =>
   ipcRenderer.invoke('profiler', method);
@@ -14,4 +19,8 @@ contextBridge.exposeInMainWorld('slop', {
     startTrace: profile('startTrace'),
     stopTrace: profile('stopTrace'),
   } satisfies Profiler,
+  window: {
+    setZoom: (factor) => webFrame.setZoomFactor(factor),
+    setTheme: (theme) => ipcRenderer.send('theme', theme),
+  } satisfies WindowControls,
 });

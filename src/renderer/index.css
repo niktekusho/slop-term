@@ -1,8 +1,23 @@
+/* GitHub Primer colours. The App sets `color-scheme` on the root, which picks each light-dark() side. */
 :root {
   color-scheme: light dark;
+  --canvas: light-dark(#ffffff, #0d1117);
+  --canvas-subtle: light-dark(#f6f8fa, #161b22);
+  --overlay: light-dark(#ffffff, #161b22);
+  --fg: light-dark(#1f2328, #e6edf3);
+  --fg-muted: light-dark(#656d76, #7d8590);
+  --border: light-dark(#d0d7de, #30363d);
+  --button: light-dark(#f6f8fa, #21262d);
+  --button-hover: light-dark(#f3f4f6, #30363d);
+  --button-border: light-dark(rgb(31 35 40 / 15%), rgb(240 246 252 / 10%));
+  --row-hover: light-dark(rgb(208 215 222 / 32%), rgb(177 186 196 / 12%));
+  --row-selected: light-dark(rgb(208 215 222 / 48%), rgb(177 186 196 / 20%));
+  --shadow: light-dark(rgb(140 149 159 / 20%), rgb(1 4 9 / 75%));
   font:
     13px system-ui,
     sans-serif;
+  color: var(--fg);
+  background: var(--canvas);
 }
 
 html,
@@ -21,7 +36,8 @@ body,
 
 .tree {
   grid-row: 1 / -1;
-  border-right: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+  background: var(--canvas-subtle);
+  border-right: 1px solid var(--border);
   overflow: auto;
   position: relative;
 }
@@ -32,7 +48,8 @@ body,
   padding: 0;
 }
 
-.tree button {
+.tree button,
+.profiling button {
   font: inherit;
   color: inherit;
 }
@@ -41,13 +58,27 @@ body,
   padding: 8px;
 }
 
+.tree-actions > button,
+.profiling-actions button {
+  padding: 3px 12px;
+  background: var(--button);
+  border: 1px solid var(--button-border);
+  border-radius: 6px;
+}
+
+.tree-actions > button:hover,
+.profiling-actions button:hover {
+  background: var(--button-hover);
+}
+
 .menu {
   position: absolute;
   z-index: 1;
   min-width: 160px;
-  background: Canvas;
-  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+  background: var(--overlay);
+  border: 1px solid var(--border);
   border-radius: 6px;
+  box-shadow: 0 8px 24px var(--shadow);
   padding: 4px 0;
 }
 
@@ -64,11 +95,11 @@ body,
 
 .menu button:hover,
 .row:hover {
-  background: color-mix(in srgb, currentColor 8%, transparent);
+  background: var(--row-hover);
 }
 
 .row[aria-current='true'] {
-  background: color-mix(in srgb, currentColor 14%, transparent);
+  background: var(--row-selected);
 }
 
 .group {
@@ -77,16 +108,22 @@ body,
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
-  opacity: 0.6;
+  color: var(--fg-muted);
 }
 
+/* The terminal palettes use the canvas colour as their background. */
 .terminals {
   min-width: 0;
-  background: #000;
+  background: var(--canvas);
 }
 
 .terminal {
   height: 100%;
+}
+
+/* xterm.css paints the viewport black; it shows below the last row, where fit leaves less than a row. */
+.terminal .xterm-viewport {
+  background-color: transparent;
 }
 
 .terminal[hidden] {
@@ -96,7 +133,7 @@ body,
 .profiling {
   max-height: 200px;
   overflow: auto;
-  border-top: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+  border-top: 1px solid var(--border);
   font-size: 12px;
 }
 
@@ -121,5 +158,5 @@ body,
 
 .profiling th {
   font-weight: 600;
-  opacity: 0.6;
+  color: var(--fg-muted);
 }

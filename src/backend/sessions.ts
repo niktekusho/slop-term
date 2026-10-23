@@ -3,7 +3,9 @@ import { spawn, type IPty } from 'node-pty';
 import type { Backend, BackendEvent, TabId } from '../shared/ipc.ts';
 import { detectShells, launchLine } from './shells.ts';
 
-export function createSessions(emit: (event: BackendEvent) => void): Backend {
+export function createSessions(
+  emit: (event: BackendEvent) => void,
+): Pick<Backend, 'listShells' | 'openLocalShell' | 'write' | 'resize'> {
   const tabs = new Map<TabId, IPty>();
   let nextTab = 1;
 

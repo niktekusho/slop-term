@@ -1,16 +1,18 @@
-import { act, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App.tsx';
-import type { Shell } from '../shared/ipc.ts';
+import { defaultSettings, type Settings, type Shell } from '../shared/ipc.ts';
 import { FakeBackend } from './fake-backend.ts';
 
 function setup({
   mac = false,
   shells,
-}: { mac?: boolean; shells?: Shell[] } = {}) {
+  settings,
+}: { mac?: boolean; shells?: Shell[]; settings?: Partial<Settings> } = {}) {
   const backend = new FakeBackend();
   if (shells) backend.shells = shells;
+  if (settings) backend.savedSettings = { ...defaultSettings, ...settings };
   const user = userEvent.setup();
   render(<App backend={backend} mac={mac} />);
   return {
@@ -130,6 +132,130 @@ describe('terminal', () => {
     await vi.waitFor(() =>
       expect(screen.getByRole('main')).toHaveTextContent('hello-slop'),
     );
+  });
+});
+
+const os = { dark: false, listeners: new Set<() => void>() };
+function setOsDark(dark: boolean) {
+  os.dark = dark;
+  for (const listener of os.listeners) listener();
+}
+const terminalStyles = () =>
+  [...screen.getByRole('main').querySelectorAll('style')]
+    .map((style) => style.textContent)
+    .join('');
+const colorScheme = () => document.documentElement.style.colorScheme;
+
+describe('theme', () => {
+  beforeEach(() => {
+    os.dark = false;
+    os.listeners.clear();
+    vi.spyOn(window, 'matchMedia').mockImplementation(
+      (media) =>
+        ({
+          get matches() {
+            return media === '(prefers-color-scheme: dark)' && os.dark;
+          },
+          addEventListener: (_: string, l: () => void) => os.listeners.add(l),
+          removeEventListener: (_: string, l: () => void) =>
+            os.listeners.delete(l),
+          addListener() {},
+          removeListener() {},
+        }) as unknown as MediaQueryList,
+    );
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('follows the OS light or dark mode', async () => {
+    const { newLocalShell } = setup();
+    await newLocalShell('zsh');
+    expect(colorScheme()).toBe('light');
+    expect(terminalStyles()).toContain('#1f2328');
+
+    act(() => setOsDark(true));
+    expect(colorScheme()).toBe('dark');
+    expect(terminalStyles()).toContain('#e6edf3');
+  });
+
+  it('uses the mode that settings force, whatever the OS mode', async () => {
+    const { backend, newLocalShell } = setup();
+    setOsDark(true);
+    await newLocalShell('zsh');
+    act(() =>
+      backend.emit({
+        type: 'settings',
+        settings: { ...defaultSettings, theme: 'light' },
+      }),
+    );
+    expect(colorScheme()).toBe('light');
+    expect(terminalStyles()).toContain('#1f2328');
+    expect(backend.theme).toBe('light');
+
+    act(() => setOsDark(false));
+    act(() => setOsDark(true));
+    expect(colorScheme()).toBe('light');
+  });
+});
+
+const savedSizes = (backend: FakeBackend) =>
+  backend.sent('updateSettings').map(([patch]) => patch.fontSize);
+
+describe('zoom', () => {
+  it('zooms in with Ctrl+= or Ctrl++ and saves the new size', async () => {
+    const { backend, user } = setup();
+    await user.keyboard('{Control>}={/Control}');
+    await user.keyboard('{Control>}+{/Control}');
+    expect(savedSizes(backend)).toEqual([13, 14]);
+  });
+
+  it('zooms out with Ctrl+- and resets with Ctrl+0', async () => {
+    const { backend, user } = setup({ settings: { fontSize: 15 } });
+    await vi.waitFor(() => expect(backend.zoom).toBe(1.25));
+    await user.keyboard('{Control>}-{/Control}');
+    await user.keyboard('{Control>}0{/Control}');
+    expect(savedSizes(backend)).toEqual([14, 12]);
+  });
+
+  it('applies the saved size to the whole window', async () => {
+    const { backend } = setup({ settings: { fontSize: 18 } });
+    await vi.waitFor(() => expect(backend.zoom).toBe(1.5));
+  });
+
+  it('zooms with Ctrl+wheel and scrolls with the plain wheel', async () => {
+    const { backend } = setup();
+    fireEvent.wheel(document.body, { deltaY: -100, ctrlKey: true });
+    fireEvent.wheel(document.body, { deltaY: 100 });
+    await vi.waitFor(() => expect(savedSizes(backend)).toEqual([13]));
+  });
+
+  it('zooms with Cmd on macOS, not Ctrl', async () => {
+    const { backend, user } = setup({ mac: true });
+    await user.keyboard('{Meta>}={/Meta}');
+    await user.keyboard('{Control>}={/Control}');
+    expect(savedSizes(backend)).toEqual([13]);
+  });
+
+  it('keeps the zoom keys away from the shell', async () => {
+    const { backend, user, newLocalShell } = setup();
+    await newLocalShell('zsh');
+    await user.keyboard('{Control>}-{/Control}');
+    expect(backend.sent('write')).toEqual([]);
+  });
+});
+
+describe('settings file', () => {
+  it('opens with Ctrl+, on Windows', async () => {
+    const { backend, user } = setup();
+    await user.keyboard('{Control>},{/Control}');
+    expect(backend.sent('openSettings')).toHaveLength(1);
+  });
+
+  it('opens with Cmd+, on macOS', async () => {
+    const { backend, user } = setup({ mac: true });
+    await user.keyboard('{Meta>},{/Meta}');
+    expect(backend.sent('openSettings')).toHaveLength(1);
   });
 });
 

@@ -4,21 +4,26 @@ import {
   contentTracing,
   dialog,
   ipcMain,
+  nativeTheme,
   utilityProcess,
 } from 'electron';
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
-import type { Profiler } from './shared/ipc.ts';
+import type { Profiler, Settings } from './shared/ipc.ts';
 
 // `start:profile` gives the main process the default inspector port 9229, so the back end takes 9230.
 // Packaged builds skip it: their EnableNodeCliInspectArguments fuse rejects inspector arguments.
 const inspect = !app.isPackaged && app.commandLine.hasSwitch('inspect');
 
 app.whenReady().then(() => {
-  const backend = utilityProcess.fork(path.join(__dirname, 'backend.cjs'), [], {
-    serviceName: 'slop-term back end',
-    execArgv: inspect ? ['--inspect=9230'] : [],
-  });
+  const backend = utilityProcess.fork(
+    path.join(__dirname, 'backend.cjs'),
+    [app.getPath('userData')],
+    {
+      serviceName: 'slop-term back end',
+      execArgv: inspect ? ['--inspect=9230'] : [],
+    },
+  );
   const window = new BrowserWindow({
     width: 1200,
     height: 760,
@@ -26,6 +31,9 @@ app.whenReady().then(() => {
   });
 
   ipcMain.on('backend', (_event, request) => backend.postMessage(request));
+  ipcMain.on('theme', (_event, theme: Settings['theme']) => {
+    nativeTheme.themeSource = theme;
+  });
   backend.on('message', (message) =>
     window.webContents.send('backend', message),
   );

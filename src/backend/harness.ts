@@ -13,11 +13,11 @@ import {
 /**
  * Vitest's Node and Electron's Node have different V8 serialization versions:
  * messages cross as JSON. Starts the back end in Electron's own Node runtime
- * with a temp home folder and drives it only through IPC messages.
+ * with a temp home folder and drives it only through IPC messages. The home folder is also its app data folder.
  */
 export async function startBackend() {
   const home = await realpath(await mkdtemp(path.join(tmpdir(), 'slop-home-')));
-  const child = fork(path.join(import.meta.dirname, 'main.ts'), [], {
+  const child = fork(path.join(import.meta.dirname, 'main.ts'), [home], {
     execPath: electronPath as unknown as string,
     env: {
       ...process.env,

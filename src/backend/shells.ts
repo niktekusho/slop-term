@@ -11,7 +11,7 @@ export async function detectShells(): Promise<Shell[]> {
       .map((kind) => ({ kind }));
   }
   const shells: Shell[] = [
-    { kind: onPath('pwsh.exe') ? 'pwsh' : 'powershell' },
+    { kind: findOnPath('pwsh.exe') ? 'pwsh' : 'powershell' },
     { kind: 'cmd' },
   ];
   for (const distro of await wslDistros()) shells.push({ kind: 'wsl', distro });
@@ -32,10 +32,12 @@ export function launchLine(shell: Shell): [file: string, args: string[]] {
   }
 }
 
-function onPath(file: string) {
+export function findOnPath(file: string) {
   return (process.env.PATH ?? '')
     .split(path.delimiter)
-    .some((dir) => dir && existsSync(path.join(dir, file)));
+    .filter(Boolean)
+    .map((dir) => path.join(dir, file))
+    .find(existsSync);
 }
 
 async function wslDistros() {

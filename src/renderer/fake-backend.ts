@@ -1,17 +1,22 @@
-import type {
-  Backend,
-  BackendClient,
-  BackendEvent,
-  ProcessMetrics,
-  Request,
-  Shell,
-  TabId,
+import {
+  defaultSettings,
+  type Backend,
+  type BackendClient,
+  type BackendEvent,
+  type ProcessMetrics,
+  type Request,
+  type Settings,
+  type Shell,
+  type TabId,
 } from '../shared/ipc.ts';
 
 /** In-memory back end for UI tests: records every request and emits events on demand. */
 export class FakeBackend implements BackendClient {
   requests: Omit<Request, 'id'>[] = [];
   shells: Shell[] = [{ kind: 'zsh' }, { kind: 'bash' }];
+  savedSettings: Settings = defaultSettings;
+  zoom = 1;
+  theme: Settings['theme'] = 'system';
   processes: ProcessMetrics[] = [];
   tracing = false;
   traceFile: string | undefined = '/tmp/slop-term-trace.json';
@@ -51,6 +56,29 @@ export class FakeBackend implements BackendClient {
 
   async resize(...args: Parameters<Backend['resize']>) {
     this.requests.push({ method: 'resize', args });
+  }
+
+  async settings() {
+    this.requests.push({ method: 'settings', args: [] });
+    return this.savedSettings;
+  }
+
+  async updateSettings(...args: Parameters<Backend['updateSettings']>) {
+    this.requests.push({ method: 'updateSettings', args });
+    this.savedSettings = { ...this.savedSettings, ...args[0] };
+    this.emit({ type: 'settings', settings: this.savedSettings });
+  }
+
+  async openSettings() {
+    this.requests.push({ method: 'openSettings', args: [] });
+  }
+
+  setZoom(factor: number) {
+    this.zoom = factor;
+  }
+
+  setTheme(theme: Settings['theme']) {
+    this.theme = theme;
   }
 
   async metrics() {

@@ -4,11 +4,31 @@ export type Shell =
 export type TabId = string;
 export type TerminalSize = { cols: number; rows: number };
 
+/** The per-machine `settings.json`. A missing file or key means its default. */
+export type Settings = {
+  theme: 'system' | 'light' | 'dark';
+  /** A system font; unset means the bundled JetBrains Mono. */
+  fontFamily?: string;
+  fontSize: number;
+  scrollback: number;
+  editor?: string;
+};
+
+export const defaultSettings: Settings = {
+  theme: 'system',
+  fontSize: 12,
+  scrollback: 1000,
+};
+
 export interface Backend {
   listShells(): Promise<Shell[]>;
   openLocalShell(shell: Shell): Promise<TabId>;
   write(tab: TabId, data: string): Promise<void>;
   resize(tab: TabId, size: TerminalSize): Promise<void>;
+  settings(): Promise<Settings>;
+  /** Writes the keys into `settings.json`, keeping the others. */
+  updateSettings(patch: Partial<Settings>): Promise<void>;
+  openSettings(): Promise<void>;
 }
 
 // Served by the main process, not the back end: these Electron APIs exist only there.
@@ -28,13 +48,21 @@ export type ProcessMetrics = {
 
 export type BackendEvent =
   | { type: 'output'; tab: TabId; data: string }
-  | { type: 'exit'; tab: TabId; code: number };
+  | { type: 'exit'; tab: TabId; code: number }
+  | { type: 'settings'; settings: Settings };
 
 type Events = {
   onEvent(listener: (event: BackendEvent) => void): () => void;
 };
 
-export type BackendClient = Backend & Profiler & Events;
+// Served by the preload and the main process: they change the Electron window itself.
+export interface WindowControls {
+  setZoom(factor: number): void;
+  /** Makes the native title bar follow a forced theme. */
+  setTheme(theme: Settings['theme']): void;
+}
+
+export type BackendClient = Backend & Profiler & WindowControls & Events;
 
 export type Request = {
   [M in keyof Backend]: {
@@ -55,6 +83,9 @@ const methods: { [M in keyof Backend]: true } = {
   openLocalShell: true,
   write: true,
   resize: true,
+  settings: true,
+  updateSettings: true,
+  openSettings: true,
 };
 
 export function serve(backend: Backend, send: (message: Message) => void) {

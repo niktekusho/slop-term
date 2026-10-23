@@ -10,6 +10,9 @@ globalThis.ResizeObserver ??= class {
   disconnect() {}
 };
 
+// jsdom logs "Not implemented" and returns null. Returning null quietly keeps xterm on its DOM renderer.
+HTMLCanvasElement.prototype.getContext = () => null;
+
 window.matchMedia ??= (query) =>
   ({
     matches: false,
