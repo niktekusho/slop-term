@@ -1,18 +1,37 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App.tsx';
-import { defaultSettings, type Settings, type Shell } from '../shared/ipc.ts';
+import {
+  defaultSettings,
+  type SessionTree,
+  type Settings,
+  type Shell,
+} from '../shared/ipc.ts';
 import { FakeBackend } from './fake-backend.ts';
 
 function setup({
   mac = false,
   shells,
   settings,
-}: { mac?: boolean; shells?: Shell[]; settings?: Partial<Settings> } = {}) {
+  tree,
+}: {
+  mac?: boolean;
+  shells?: Shell[];
+  settings?: Partial<Settings>;
+  tree?: Partial<SessionTree>;
+} = {}) {
   const backend = new FakeBackend();
   if (shells) backend.shells = shells;
   if (settings) backend.savedSettings = { ...defaultSettings, ...settings };
+  if (tree) backend.tree = { ...backend.tree, ...tree };
   const user = userEvent.setup();
   render(<App backend={backend} mac={mac} />);
   return {
@@ -356,5 +375,131 @@ describe('Profiling panel', () => {
     await user.keyboard(togglePanel);
     await user.keyboard(togglePanel);
     expect(traceButton('Stop and save trace')).toBeInTheDocument();
+  });
+});
+const rowTexts = () =>
+  [...tree().querySelectorAll('.row')].map((row) => row.textContent);
+const row = (name: string) =>
+  [...tree().querySelectorAll<HTMLElement>('.row')].find(
+    (r) => r.textContent === name,
+  )!;
+const filterBox = () => screen.getByRole('searchbox', { name: 'Filter' });
+
+const sampleTree: Partial<SessionTree> = {
+  folders: ['Work', 'Home', 'Work/Production', 'Work/Empty'],
+  sessions: [
+    { alias: 'web-prod', folder: 'Work/Production' },
+    { alias: 'api', folder: 'Work' },
+    { alias: 'nas', folder: 'Home' },
+    { alias: 'loose' },
+    { alias: 'db-prod', folder: 'Work/Production' },
+    { alias: 'adhoc' },
+  ],
+  handWritten: ['old-backup', 'jenkins'],
+};
+
+describe('Session tree', () => {
+  it('orders Unsaved Tabs, Hand-written hosts, loose hosts, then folders', async () => {
+    const { newLocalShell } = setup({ tree: sampleTree });
+    await newLocalShell('zsh');
+    expect(rowTexts()).toEqual([
+      'zsh',
+      'jenkins',
+      'old-backup',
+      'adhoc',
+      'loose',
+      'Home',
+      'nas',
+      'Work',
+      'Empty',
+      'Production',
+      'db-prod',
+      'web-prod',
+      'api',
+    ]);
+    expect(
+      within(unsaved()!).getByText('old-backup', { exact: false }),
+    ).toBeInTheDocument();
+  });
+
+  it('shows the Unsaved group for Hand-written hosts with no Tabs open', async () => {
+    setup({ tree: { handWritten: ['jenkins'] } });
+    await vi.waitFor(() =>
+      expect(within(unsaved()!).getByText('jenkins')).toBeInTheDocument(),
+    );
+  });
+
+  it('draws each row shape', async () => {
+    setup({ tree: sampleTree });
+    await vi.waitFor(() => expect(row('db-prod')).toBeDefined());
+
+    const handWritten = row('jenkins');
+    expect(
+      within(handWritten).getByTitle('Hand-written host, read-only'),
+    ).toBeInTheDocument();
+    expect(handWritten.querySelector('.edge.ssh')).not.toBeNull();
+
+    const saved = row('db-prod');
+    expect(saved.querySelector('.edge.ssh')).not.toBeNull();
+    expect(
+      within(saved).queryByTitle('Hand-written host, read-only'),
+    ).toBeNull();
+    expect(saved.style.getPropertyValue('--depth')).toBe('2');
+
+    const folder = row('Production');
+    expect(folder).toHaveAttribute('aria-expanded', 'true');
+    expect(folder.querySelector('.chevron')).not.toBeNull();
+    expect(folder.querySelector('.folder-icon')).not.toBeNull();
+    expect(folder.querySelector('.edge')).toBeNull();
+    expect(folder.style.getPropertyValue('--depth')).toBe('1');
+  });
+
+  it('collapses and expands a folder', async () => {
+    const { user } = setup({ tree: sampleTree });
+    await vi.waitFor(() => expect(row('Home')).toBeDefined());
+    await user.click(row('Home'));
+    expect(row('Home')).toHaveAttribute('aria-expanded', 'false');
+    expect(rowTexts()).not.toContain('nas');
+    await user.click(row('Home'));
+    expect(rowTexts()).toContain('nas');
+  });
+
+  it('narrows the tree by name', async () => {
+    const { user } = setup({ tree: sampleTree });
+    await vi.waitFor(() => expect(row('Home')).toBeDefined());
+    await user.type(filterBox(), 'PROD');
+    expect(rowTexts()).toEqual(['Work', 'Production', 'db-prod', 'web-prod']);
+    expect(unsaved()).toBeNull();
+  });
+
+  it('focuses the filter with Ctrl+Shift+O on Windows and Cmd+Shift+O on macOS', async () => {
+    const { user } = setup();
+    await user.keyboard('{Control>}{Shift>}O{/Shift}{/Control}');
+    expect(filterBox()).toHaveFocus();
+    cleanup();
+
+    const mac = setup({ mac: true });
+    await mac.user.keyboard('{Meta>}{Shift>}O{/Shift}{/Meta}');
+    expect(filterBox()).toHaveFocus();
+  });
+
+  it('reloads when the back end sends a new tree', async () => {
+    const { backend } = setup({ tree: sampleTree });
+    await vi.waitFor(() => expect(row('Home')).toBeDefined());
+    act(() =>
+      backend.emit({
+        type: 'tree',
+        tree: {
+          folders: [],
+          sessions: [{ alias: 'db' }],
+          handWritten: [],
+          warnings: ['Match blocks in ~/.ssh/config are ignored'],
+        },
+      }),
+    );
+    expect(rowTexts()).toEqual(['db']);
+    expect(tree()).toHaveTextContent(
+      'Match blocks in ~/.ssh/config are ignored',
+    );
   });
 });

@@ -9,6 +9,7 @@ import {
 import { Terminal } from '@xterm/xterm';
 import {
   defaultSettings,
+  emptyTree,
   type BackendClient,
   type Settings,
   type Shell,
@@ -16,6 +17,7 @@ import {
 } from '../shared/ipc.ts';
 import { TerminalView } from './TerminalView.tsx';
 import { ProfilingPanel } from './ProfilingPanel.tsx';
+import { SessionTree } from './SessionTree.tsx';
 import { terminalOptions } from './look.ts';
 
 type Tab = { id: TabId; shell: Shell };
@@ -26,6 +28,7 @@ const shellLabel = (shell: Shell) =>
 // Windows shortcuts are always Ctrl+Shift so plain Ctrl keys reach the shell; macOS uses Cmd, some with Shift.
 const shortcuts = {
   newTab: { code: 'KeyT', macShift: false },
+  filter: { code: 'KeyO', macShift: true },
   profiling: { code: 'KeyM', macShift: true },
 };
 
@@ -73,6 +76,9 @@ export function App({
   const [menuOpen, setMenuOpen] = useState(false);
   const [profiling, setProfiling] = useState(false);
   const [settings, setSettings] = useState<Settings>(defaultSettings);
+  const [tree, setTree] = useState(emptyTree);
+  const [query, setQuery] = useState('');
+  const filter = useRef<HTMLInputElement>(null);
   const terms = useRef(new Map<TabId, Terminal>());
   const osDark = useSyncExternalStore(
     subscribeToOsMode,
@@ -88,6 +94,7 @@ export function App({
   useEffect(() => {
     backend.listShells().then(setShells);
     backend.settings().then(setSettings);
+    backend.getTree().then(setTree);
   }, [backend]);
 
   useEffect(() => {
@@ -105,6 +112,7 @@ export function App({
     () =>
       backend.onEvent((event) => {
         if (event.type === 'settings') return setSettings(event.settings);
+        if (event.type === 'tree') return setTree(event.tree);
         const term = terms.current.get(event.tab);
         if (event.type === 'output') term?.write(event.data);
         else {
@@ -146,6 +154,7 @@ export function App({
       e.preventDefault();
       if (shortcut === 'profiling') setProfiling((p) => !p);
       else if (shortcut === 'settings') backend.openSettings();
+      else if (shortcut === 'filter') filter.current?.focus();
       else if (shortcut === 'newTab') {
         if (shells[0]) open(shells[0]);
       } else zoom(shortcut);
@@ -172,47 +181,44 @@ export function App({
     <div className="window">
       <nav className="tree" aria-label="Session tree">
         <div className="tree-actions">
-          <button aria-haspopup="menu" onClick={() => setMenuOpen((o) => !o)}>
-            New local shell
-          </button>
-          {menuOpen && (
-            <ul role="menu" className="menu">
-              {shells.map((shell) => (
-                <li key={shellLabel(shell)} role="none">
-                  <button
-                    role="menuitem"
-                    onClick={() => {
-                      setMenuOpen(false);
-                      open(shell);
-                    }}
-                  >
-                    {shellLabel(shell)}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+          <input
+            ref={filter}
+            type="search"
+            aria-label="Filter"
+            placeholder="Filter"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <div className="new">
+            <button aria-haspopup="menu" onClick={() => setMenuOpen((o) => !o)}>
+              New local shell
+            </button>
+            {menuOpen && (
+              <ul role="menu" className="menu">
+                {shells.map((shell) => (
+                  <li key={shellLabel(shell)} role="none">
+                    <button
+                      role="menuitem"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        open(shell);
+                      }}
+                    >
+                      {shellLabel(shell)}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
-        {tabs.length > 0 && (
-          <section aria-labelledby="unsaved-heading">
-            <h2 id="unsaved-heading" className="group">
-              Unsaved
-            </h2>
-            <ul>
-              {tabs.map((tab) => (
-                <li key={tab.id}>
-                  <button
-                    className="row"
-                    aria-current={tab.id === active || undefined}
-                    onClick={() => setActive(tab.id)}
-                  >
-                    {shellLabel(tab.shell)}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
+        <SessionTree
+          model={tree}
+          tabs={tabs.map((t) => ({ id: t.id, label: shellLabel(t.shell) }))}
+          active={active}
+          onSelectTab={setActive}
+          query={query}
+        />
       </nav>
       <main className="terminals">
         {tabs.map((tab) => (

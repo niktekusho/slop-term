@@ -13,6 +13,9 @@
   --row-hover: light-dark(rgb(208 215 222 / 32%), rgb(177 186 196 / 12%));
   --row-selected: light-dark(rgb(208 215 222 / 48%), rgb(177 186 196 / 20%));
   --shadow: light-dark(rgb(140 149 159 / 20%), rgb(1 4 9 / 75%));
+  --faint: light-dark(#818b98, #6e7681);
+  --teal: light-dark(#1b7c83, #39c5cf);
+  --warn: light-dark(#9a6700, #d29922);
   font:
     13px system-ui,
     sans-serif;
@@ -55,10 +58,12 @@ body,
 }
 
 .tree-actions {
+  display: flex;
+  gap: 6px;
   padding: 8px;
 }
 
-.tree-actions > button,
+.new > button,
 .profiling-actions button {
   padding: 3px 12px;
   background: var(--button);
@@ -66,13 +71,29 @@ body,
   border-radius: 6px;
 }
 
-.tree-actions > button:hover,
+.new > button:hover,
 .profiling-actions button:hover {
   background: var(--button-hover);
 }
 
+.tree-actions input {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--canvas);
+  color: var(--fg);
+  font: inherit;
+}
+
+.new {
+  position: relative;
+}
+
 .menu {
   position: absolute;
+  right: 0;
   z-index: 1;
   min-width: 160px;
   background: var(--overlay);
@@ -82,8 +103,7 @@ body,
   padding: 4px 0;
 }
 
-.menu button,
-.row {
+.menu button {
   display: block;
   width: 100%;
   height: 22px;
@@ -91,6 +111,72 @@ body,
   border: 0;
   background: none;
   text-align: left;
+}
+
+.row {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 22px;
+  padding: 0 8px 0 calc(8px + var(--depth, 0) * 14px);
+  border: 0;
+  background: none;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.row .name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.chevron,
+.lock {
+  color: var(--faint);
+}
+
+.row[aria-expanded='true'] .chevron {
+  transform: rotate(90deg);
+}
+
+.lock {
+  display: flex;
+}
+
+.slot {
+  flex: none;
+  width: 14px;
+}
+
+.edge {
+  flex: none;
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+}
+
+.edge.ssh {
+  background: var(--teal);
+}
+
+.warning {
+  margin: 0 8px 6px;
+  font-size: 12px;
+  color: var(--warn);
 }
 
 .menu button:hover,

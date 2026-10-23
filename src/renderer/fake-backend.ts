@@ -1,10 +1,12 @@
 import {
   defaultSettings,
+  emptyTree,
   type Backend,
   type BackendClient,
   type BackendEvent,
   type ProcessMetrics,
   type Request,
+  type SessionTree,
   type Settings,
   type Shell,
   type TabId,
@@ -20,6 +22,7 @@ export class FakeBackend implements BackendClient {
   processes: ProcessMetrics[] = [];
   tracing = false;
   traceFile: string | undefined = '/tmp/slop-term-trace.json';
+  tree: SessionTree = emptyTree;
   private listeners = new Set<(event: BackendEvent) => void>();
   private nextTab = 1;
 
@@ -71,6 +74,11 @@ export class FakeBackend implements BackendClient {
 
   async openSettings() {
     this.requests.push({ method: 'openSettings', args: [] });
+  }
+
+  async getTree() {
+    this.requests.push({ method: 'getTree', args: [] });
+    return this.tree;
   }
 
   setZoom(factor: number) {

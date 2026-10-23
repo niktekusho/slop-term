@@ -14,6 +14,23 @@ export type Settings = {
   editor?: string;
 };
 
+/** Flat lists in file order: the UI builds the folders and sorts. */
+export type SessionTree = {
+  /** Folder paths from the Sidecar file, segments joined by `/`. */
+  folders: string[];
+  /** Managed hosts. One without a Sidecar folder sits at the tree root. */
+  sessions: { alias: string; folder?: string }[];
+  handWritten: string[];
+  warnings: string[];
+};
+
+export const emptyTree: SessionTree = {
+  folders: [],
+  sessions: [],
+  handWritten: [],
+  warnings: [],
+};
+
 export const defaultSettings: Settings = {
   theme: 'system',
   fontSize: 12,
@@ -29,6 +46,7 @@ export interface Backend {
   /** Writes the keys into `settings.json`, keeping the others. */
   updateSettings(patch: Partial<Settings>): Promise<void>;
   openSettings(): Promise<void>;
+  getTree(): Promise<SessionTree>;
 }
 
 // Served by the main process, not the back end: these Electron APIs exist only there.
@@ -49,7 +67,8 @@ export type ProcessMetrics = {
 export type BackendEvent =
   | { type: 'output'; tab: TabId; data: string }
   | { type: 'exit'; tab: TabId; code: number }
-  | { type: 'settings'; settings: Settings };
+  | { type: 'settings'; settings: Settings }
+  | { type: 'tree'; tree: SessionTree };
 
 type Events = {
   onEvent(listener: (event: BackendEvent) => void): () => void;
@@ -86,6 +105,7 @@ const methods: { [M in keyof Backend]: true } = {
   settings: true,
   updateSettings: true,
   openSettings: true,
+  getTree: true,
 };
 
 export function serve(backend: Backend, send: (message: Message) => void) {

@@ -1,5 +1,5 @@
 import { fork } from 'node:child_process';
-import { mkdtemp, realpath, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import electronPath from 'electron';
@@ -13,10 +13,14 @@ import {
 /**
  * Vitest's Node and Electron's Node have different V8 serialization versions:
  * messages cross as JSON. Starts the back end in Electron's own Node runtime
- * with a temp home folder and drives it only through IPC messages. The home folder is also its app data folder.
+ * with a temp home folder seeded with `files` and drives it only through IPC messages. The home folder is also its app data folder.
  */
-export async function startBackend() {
+export async function startBackend(files: Record<string, string> = {}) {
   const home = await realpath(await mkdtemp(path.join(tmpdir(), 'slop-home-')));
+  for (const [name, text] of Object.entries(files)) {
+    await mkdir(path.dirname(path.join(home, name)), { recursive: true });
+    await writeFile(path.join(home, name), text);
+  }
   const child = fork(path.join(import.meta.dirname, 'main.ts'), [home], {
     execPath: electronPath as unknown as string,
     env: {

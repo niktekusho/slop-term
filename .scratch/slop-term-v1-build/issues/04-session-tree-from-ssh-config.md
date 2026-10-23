@@ -8,13 +8,15 @@
 
 **Status:** ready-for-agent
 
-- [ ] The include line goes at the top of `~/.ssh/config` once, as a line edit; nothing else in that file changes. A missing `~/.ssh/config` is created with only that line.
-- [ ] The config store reads the Managed config with `ssh-config` 5.3.0, follows `Include` itself, ignores `Match` blocks and shows a warning when it finds one.
-- [ ] Only concrete aliases are hosts; pattern entries such as `Host *` never show.
-- [ ] The Sidecar file `~/.ssh/slop-term.json` provides the folder list (empty folders kept) and, per Managed alias, its folder. Orphaned Sidecar entries are ignored but kept.
-- [ ] Tree order: the Unsaved group (unsaved local shell Tabs, then Hand-written hosts A to Z with a grey lock and the tooltip "Hand-written host, read-only"), then Managed hosts with no Sidecar entry, then folders. Inside a folder: subfolders first, then Saved sessions A to Z.
-- [ ] Rows are one line, 22 px high, indented 14 px per level. Saved session rows have a 3 px teal bar for SSH. Folders show a chevron and folder icon, no colour or count.
-- [ ] The app watches `slop-term.conf`, `slop-term.json` and `~/.ssh/config` and reloads the tree when they change.
-- [ ] The filter box narrows the tree by name; Ctrl+Shift+O / Cmd+Shift+O focuses it.
-- [ ] Back-end tests against a temp home: include line added once and idempotent; `Include` followed; `Match` warning; patterns hidden; orphaned Sidecar entries survive a write; tree reflects an external file change.
-- [ ] UI test: tree order and row shapes from a fake tree model.
+- [x] The include line goes at the top of `~/.ssh/config` once, as a line edit; nothing else in that file changes. A missing `~/.ssh/config` is created with only that line.
+- [x] The config store reads the Managed config with `ssh-config` 5.3.0, follows `Include` itself, ignores `Match` blocks and shows a warning when it finds one.
+- [x] Only concrete aliases are hosts; pattern entries such as `Host *` never show.
+- [x] The Sidecar file `~/.ssh/slop-term.json` provides the folder list (empty folders kept) and, per Managed alias, its folder. Orphaned Sidecar entries are ignored but kept.
+- [x] Tree order: the Unsaved group (unsaved local shell Tabs, then Hand-written hosts A to Z with a grey lock and the tooltip "Hand-written host, read-only"), then Managed hosts with no Sidecar entry, then folders. Inside a folder: subfolders first, then Saved sessions A to Z.
+- [x] Rows are one line, 22 px high, indented 14 px per level. Saved session rows have a 3 px teal bar for SSH. Folders show a chevron and folder icon, no colour or count.
+- [x] The app watches `slop-term.conf`, `slop-term.json` and `~/.ssh/config` and reloads the tree when they change.
+- [x] The filter box narrows the tree by name; Ctrl+Shift+O / Cmd+Shift+O focuses it.
+- [x] Back-end tests against a temp home: include line added once and idempotent; `Include` followed; `Match` warning; patterns hidden; orphaned Sidecar entries survive a write; tree reflects an external file change.
+- [x] UI test: tree order and row shapes from a fake tree model.
+
+Checked on macOS by driving the dev build over the DevTools protocol with `HOME` set to a seeded temp folder: the include line went to the top of the temp `config`, the tree drew in light and dark mode with the `Match` warning, the filter narrowed it to `prod` rows, and a host appended to `slop-term.conf` showed up without a restart. Nothing has run on Windows. The back end returns flat lists in file order (`SessionTree` in `src/shared/ipc.ts`); the UI nests and sorts them, so folders and root hosts are also A to Z. Folders collapse on click. An existing include line counts only above the first `Host` or `Match` line; otherwise the app adds its own at the top. An unreadable file or invalid `slop-term.json` shows a warning in the tree and is read as empty. Only the three named files are watched: an edit to another file they `Include` reloads nothing until one of the three changes. This ticket writes no Sidecar data, so the orphan test checks that the file stays untouched; the write case moved to ticket 10.

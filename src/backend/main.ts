@@ -4,6 +4,7 @@ import {
   type Message,
   type Request,
 } from '../shared/ipc.ts';
+import { createConfigStore } from './config-store.ts';
 import { createSessions } from './sessions.ts';
 import { createSettings } from './settings.ts';
 
@@ -19,7 +20,11 @@ const emit = (event: BackendEvent) => send({ event });
 const dataDir = process.argv.at(-1)!;
 
 const handle = serve(
-  { ...createSessions(emit), ...createSettings(dataDir, emit) },
+  {
+    ...createSessions(emit),
+    ...createSettings(dataDir, emit),
+    ...createConfigStore(emit),
+  },
   send,
 );
 
