@@ -35,4 +35,4 @@ Correction to "Electron vs Electrobun vs Tauri for a TypeScript SSH/SFTP client"
 
 Memory measurements (Electron, Electrobun, Tauri, MobaXterm): [research/stack-memory.md](../research/stack-memory.md)
 
-Addition (2026-10-21): the back end also works on macOS 15 arm64 inside an Electron 44 `utilityProcess`. `node-pty` 1.1.0 fails there because npm installs `spawn-helper` without the execute bit, so the stack pins 1.2.0-beta.15, which ships it executable. The beta is untested on Windows. A packaged build and keychain prompts after a rebuild are still untested: [research/stack-macos.md](../research/stack-macos.md)
+Addition (2026-10-21): the back end also works on macOS 15 arm64 inside an Electron 44 `utilityProcess`. `node-pty` 1.1.0 fails there because npm installs `spawn-helper` without the execute bit, so the stack pins 1.2.0-beta.15, which ships it executable. The beta also works on Windows 11 (see the 2026-10-23 note in build ticket 01). A packaged build and keychain prompts after a rebuild are still untested: [research/stack-macos.md](../research/stack-macos.md)

@@ -241,7 +241,7 @@ A one-time MobaXterm import shows a preview of every session before writing anyt
 - Electron 44, React and TypeScript, built with Electron Forge (Vite + TypeScript template, Forge version pinned) and npm.
 - Terminal: xterm.js 6 (`@xterm/xterm`) with the `fit`, `search` and `webgl` 0.19.0 addons. The DOM renderer is the fallback when WebGL fails.
 - SSH and SFTP: `ssh2` 1.17.0. `chacha20-poly1305` is unavailable under Electron's BoringSSL; AES-GCM and AES-CTR work.
-- Local shells: `node-pty` 1.2.0-beta.15, pinned exactly (1.1.0 ships the macOS `spawn-helper` without the execute bit). ConPTY on Windows. The beta is untested on Windows: the first build step runs the stack test scripts on both systems.
+- Local shells: `node-pty` 1.2.0-beta.15, pinned exactly (1.1.0 ships the macOS `spawn-helper` without the execute bit). ConPTY on Windows. The beta works on Windows 11 and macOS 15, in tests and in a packaged app.
 - SSH config parsing: `ssh-config` 5.3.0. It doesn't follow `Include`, so the app does. Losing spacing before end-of-line comments in the Managed config is accepted.
 - Keychain: `@napi-rs/keyring`, service `slop-term`. No plain-text fallback.
 - KeePass: `kdbxweb` 2.1.1 with `hash-wasm` for Argon2. `@xmldom/xmldom` is pinned to 0.8.15 with npm `overrides`.

@@ -17,6 +17,8 @@
 - [x] Scrollback defaults to 1,000 lines.
 - [x] Seam 1 harness: a test starts the back end as the app does and drives it only by IPC messages, with a temp home folder per test. A test opens a local shell and reads its output.
 - [x] Seam 2 harness: a test renders the UI against the fake back end, acts as the user and checks what renders and which messages are sent.
-- [ ] The stack test scripts from "Choose the stack" pass on a Windows machine and a Mac.
+- [x] The stack test scripts from "Choose the stack" pass on a Windows machine and a Mac.
 
-Built with pnpm (the user's choice; `node-linker=hoisted` for Forge) and Forge 8.0.1, whose Vite template replaced the 7.x one. `pnpm package` builds and runs on macOS. The stack test scripts are not in the repo, and nothing has run on Windows yet: ConPTY, `wsl -l -q` decoding and the packaged `node-pty` still need a Windows run of `pnpm test` and `pnpm package`.
+Built with pnpm (the user's choice; `node-linker=hoisted` for Forge) and Forge 8.0.1, whose Vite template replaced the 7.x one. `pnpm package` builds and runs on macOS. The stack test scripts are not in the repo, so `pnpm test` and `pnpm package` stand in for them.
+
+Windows run (2026-10-23, Windows 11 Pro 26200, x64): `pnpm test` passes all 20 tests, including the Seam 1 local shell tests through ConPTY. `pnpm package` builds `out/slop-term-win32-x64` with the win32 `node-pty` prebuilds and `conpty.dll` in `app.asar.unpacked`. The packaged app lists `pwsh`, `cmd` and `wsl: Ubuntu`, hiding the two `docker-desktop` distros. Ctrl+Shift+T and the menu both open a `pwsh` Tab, and typed commands run and print. Electron 44 downloads its binary on first use, not at install, so `node_modules/electron/dist` is missing until the first `pnpm test` or `pnpm start`.
