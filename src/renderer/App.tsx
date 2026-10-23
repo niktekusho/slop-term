@@ -2,16 +2,30 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import type { BackendClient, Shell, TabId } from '../shared/ipc.ts';
 import { TerminalView } from './TerminalView.tsx';
+import { ProfilingPanel } from './ProfilingPanel.tsx';
 
 type Tab = { id: TabId; shell: Shell };
 
 const shellLabel = (shell: Shell) =>
   shell.kind === 'wsl' ? `wsl: ${shell.distro}` : shell.kind;
 
-const isNewTabShortcut = (e: KeyboardEvent, mac: boolean) =>
-  mac
-    ? e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.code === 'KeyT'
-    : e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && e.code === 'KeyT';
+// Windows shortcuts are always Ctrl+Shift so plain Ctrl keys reach the shell; macOS uses Cmd, some with Shift.
+const shortcuts = {
+  newTab: { code: 'KeyT', macShift: false },
+  profiling: { code: 'KeyM', macShift: true },
+};
+
+const appShortcut = (e: KeyboardEvent, mac: boolean) =>
+  (Object.keys(shortcuts) as (keyof typeof shortcuts)[]).find((name) => {
+    const { code, macShift } = shortcuts[name];
+    return (
+      e.code === code &&
+      !e.altKey &&
+      (mac
+        ? e.metaKey && !e.ctrlKey && e.shiftKey === macShift
+        : e.ctrlKey && e.shiftKey && !e.metaKey)
+    );
+  });
 
 export function App({
   backend,
@@ -24,6 +38,7 @@ export function App({
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [active, setActive] = useState<TabId>();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [profiling, setProfiling] = useState(false);
   const terms = useRef(new Map<TabId, Terminal>());
 
   useEffect(() => {
@@ -49,7 +64,7 @@ export function App({
     async (shell: Shell) => {
       const id = await backend.openLocalShell(shell);
       const term = new Terminal({ scrollback: 1000 });
-      term.attachCustomKeyEventHandler((e) => !isNewTabShortcut(e, mac));
+      term.attachCustomKeyEventHandler((e) => !appShortcut(e, mac));
       term.onData((data) => backend.write(id, data));
       term.onResize((size) => backend.resize(id, size));
       terms.current.set(id, term);
@@ -61,9 +76,14 @@ export function App({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!isNewTabShortcut(e, mac) || !shells[0]) return;
-      e.preventDefault();
-      open(shells[0]);
+      const shortcut = appShortcut(e, mac);
+      if (shortcut === 'profiling') {
+        e.preventDefault();
+        setProfiling((p) => !p);
+      } else if (shortcut === 'newTab' && shells[0]) {
+        e.preventDefault();
+        open(shells[0]);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -124,6 +144,7 @@ export function App({
           />
         ))}
       </main>
+      <ProfilingPanel profiler={backend} open={profiling} />
     </div>
   );
 }

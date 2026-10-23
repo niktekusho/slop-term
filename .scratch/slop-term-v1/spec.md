@@ -245,7 +245,7 @@ A one-time MobaXterm import shows a preview of every session before writing anyt
 - SSH config parsing: `ssh-config` 5.3.0. It doesn't follow `Include`, so the app does. Losing spacing before end-of-line comments in the Managed config is accepted.
 - Keychain: `@napi-rs/keyring`, service `slop-term`. No plain-text fallback.
 - KeePass: `kdbxweb` 2.1.1 with `hash-wasm` for Argon2. `@xmldom/xmldom` is pinned to 0.8.15 with npm `overrides`.
-- Processes: the whole back end (`ssh2`, `node-pty`, providers, config files, process detection) runs in one Electron `utilityProcess`. The main process manages the window and relays messages. The UI talks to the back end only by IPC messages, so a later native back end could replace it. No worker threads for `node-pty`.
+- Processes: the whole back end (`ssh2`, `node-pty`, providers, config files, process detection) runs in one Electron `utilityProcess`. The main process manages the window, relays messages and serves the profiling panel, whose Electron APIs exist only there. The UI talks to the back end only by IPC messages, so a later native back end could replace it. No worker threads for `node-pty`.
 - One window. Tabs never open new windows.
 - Distribution: no installer, no auto-update, no telemetry. The user runs `npm run package` on each machine.
 

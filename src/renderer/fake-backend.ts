@@ -2,6 +2,7 @@ import type {
   Backend,
   BackendClient,
   BackendEvent,
+  ProcessMetrics,
   Request,
   Shell,
   TabId,
@@ -11,6 +12,9 @@ import type {
 export class FakeBackend implements BackendClient {
   requests: Omit<Request, 'id'>[] = [];
   shells: Shell[] = [{ kind: 'zsh' }, { kind: 'bash' }];
+  processes: ProcessMetrics[] = [];
+  tracing = false;
+  traceFile: string | undefined = '/tmp/slop-term-trace.json';
   private listeners = new Set<(event: BackendEvent) => void>();
   private nextTab = 1;
 
@@ -47,5 +51,18 @@ export class FakeBackend implements BackendClient {
 
   async resize(...args: Parameters<Backend['resize']>) {
     this.requests.push({ method: 'resize', args });
+  }
+
+  async metrics() {
+    return this.processes;
+  }
+
+  async startTrace() {
+    this.tracing = true;
+  }
+
+  async stopTrace() {
+    this.tracing = false;
+    return this.traceFile;
   }
 }

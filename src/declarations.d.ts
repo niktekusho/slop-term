@@ -8,5 +8,6 @@ interface Window {
     onMessage(
       listener: (message: import('./shared/ipc.ts').Message) => void,
     ): void;
+    profiler: import('./shared/ipc.ts').Profiler;
   };
 }

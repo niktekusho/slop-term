@@ -16,9 +16,11 @@ body,
 .window {
   display: grid;
   grid-template-columns: 260px 1fr;
+  grid-template-rows: minmax(0, 1fr) auto;
 }
 
 .tree {
+  grid-row: 1 / -1;
   border-right: 1px solid color-mix(in srgb, currentColor 15%, transparent);
   overflow: auto;
   position: relative;
@@ -89,4 +91,35 @@ body,
 
 .terminal[hidden] {
   display: none;
+}
+
+.profiling {
+  max-height: 200px;
+  overflow: auto;
+  border-top: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+  font-size: 12px;
+}
+
+.profiling-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+}
+
+.profiling table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.profiling th,
+.profiling td {
+  padding: 2px 8px;
+  text-align: left;
+}
+
+.profiling th {
+  font-weight: 600;
+  opacity: 0.6;
 }

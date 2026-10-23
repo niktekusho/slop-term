@@ -1,6 +1,6 @@
 import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App.tsx';
 import type { Shell } from '../shared/ipc.ts';
 import { FakeBackend } from './fake-backend.ts';
@@ -130,5 +130,105 @@ describe('terminal', () => {
     await vi.waitFor(() =>
       expect(screen.getByRole('main')).toHaveTextContent('hello-slop'),
     );
+  });
+});
+
+const panel = () => screen.queryByRole('region', { name: 'Profiling' });
+const panelRows = () =>
+  within(panel()!)
+    .getAllByRole('row')
+    .slice(1)
+    .map((row) =>
+      within(row)
+        .getAllByRole('cell')
+        .map((cell) => cell.textContent),
+    );
+const traceButton = (name: 'Record trace' | 'Stop and save trace') =>
+  within(panel()!).getByRole('button', { name });
+const togglePanel = '{Control>}{Shift>}M{/Shift}{/Control}';
+
+describe('Profiling panel', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('opens and closes with Ctrl+Shift+M on Windows', async () => {
+    const { user } = setup();
+    expect(panel()).toBeNull();
+    await user.keyboard(togglePanel);
+    expect(panel()).not.toBeNull();
+    await user.keyboard(togglePanel);
+    expect(panel()).toBeNull();
+  });
+
+  it('opens with Cmd+Shift+M on macOS', async () => {
+    const { user } = setup({ mac: true });
+    await user.keyboard('{Meta>}{Shift>}M{/Shift}{/Meta}');
+    expect(panel()).not.toBeNull();
+  });
+
+  it('keeps the shortcut away from the shell', async () => {
+    const { backend, user, newLocalShell } = setup();
+    await newLocalShell('zsh');
+    await user.keyboard(togglePanel);
+    expect(panel()).not.toBeNull();
+    expect(backend.sent('write')).toEqual([]);
+  });
+
+  it('lists CPU and memory per process, refreshed every 2 seconds', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { backend, user } = setup();
+    backend.processes = [
+      { pid: 101, name: 'Browser', cpuPercent: 12.5, memoryKB: 153600 },
+    ];
+    await user.keyboard(togglePanel);
+    await vi.waitFor(() =>
+      expect(panelRows()).toEqual([['Browser', '101', '12.5 %', '150.0 MB']]),
+    );
+
+    backend.processes = [
+      { pid: 101, name: 'Browser', cpuPercent: 3, memoryKB: 160000 },
+      {
+        pid: 102,
+        name: 'Utility: slop-term back end',
+        cpuPercent: 0,
+        memoryKB: 51200,
+      },
+    ];
+    await act(() => vi.advanceTimersByTimeAsync(2000));
+    expect(panelRows()).toEqual([
+      ['Browser', '101', '3.0 %', '156.3 MB'],
+      ['Utility: slop-term back end', '102', '0.0 %', '50.0 MB'],
+    ]);
+  });
+
+  it('records a Chrome trace and saves it to the file the user picks', async () => {
+    const { backend, user } = setup();
+    await user.keyboard(togglePanel);
+    await user.click(traceButton('Record trace'));
+    expect(backend.tracing).toBe(true);
+
+    await user.click(traceButton('Stop and save trace'));
+    expect(backend.tracing).toBe(false);
+    expect(panel()).toHaveTextContent('Saved to /tmp/slop-term-trace.json');
+  });
+
+  it('saves nothing when the user cancels the file picker', async () => {
+    const { backend, user } = setup();
+    backend.traceFile = undefined;
+    await user.keyboard(togglePanel);
+    await user.click(traceButton('Record trace'));
+    await user.click(traceButton('Stop and save trace'));
+    expect(panel()).not.toHaveTextContent('Saved to');
+    expect(traceButton('Record trace')).toBeInTheDocument();
+  });
+
+  it('keeps recording while the panel is closed', async () => {
+    const { user } = setup();
+    await user.keyboard(togglePanel);
+    await user.click(traceButton('Record trace'));
+    await user.keyboard(togglePanel);
+    await user.keyboard(togglePanel);
+    expect(traceButton('Stop and save trace')).toBeInTheDocument();
   });
 });

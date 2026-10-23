@@ -11,13 +11,30 @@ export interface Backend {
   resize(tab: TabId, size: TerminalSize): Promise<void>;
 }
 
+// Served by the main process, not the back end: these Electron APIs exist only there.
+export interface Profiler {
+  metrics(): Promise<ProcessMetrics[]>;
+  startTrace(): Promise<void>;
+  /** Resolves to the saved file, or undefined when the user cancels the file picker. */
+  stopTrace(): Promise<string | undefined>;
+}
+
+export type ProcessMetrics = {
+  pid: number;
+  name: string;
+  cpuPercent: number;
+  memoryKB: number;
+};
+
 export type BackendEvent =
   | { type: 'output'; tab: TabId; data: string }
   | { type: 'exit'; tab: TabId; code: number };
 
-export type BackendClient = Backend & {
+type Events = {
   onEvent(listener: (event: BackendEvent) => void): () => void;
 };
+
+export type BackendClient = Backend & Profiler & Events;
 
 export type Request = {
   [M in keyof Backend]: {
@@ -54,7 +71,7 @@ export function serve(backend: Backend, send: (message: Message) => void) {
 export function createClient(
   send: (request: Request) => void,
   onMessage: (listener: (message: Message) => void) => void,
-): BackendClient {
+): Backend & Events {
   const pending = new Map<
     number,
     { resolve(v: unknown): void; reject(e: Error): void }
@@ -80,7 +97,7 @@ export function createClient(
         listeners.delete(listener);
       };
     },
-  } as BackendClient;
+  } as Backend & Events;
   for (const method of Object.keys(methods) as (keyof Backend)[]) {
     client[method] = ((...args: unknown[]) =>
       new Promise((resolve, reject) => {

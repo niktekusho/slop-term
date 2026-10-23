@@ -13,6 +13,7 @@
   "main": ".vite/build/main.cjs",
   "scripts": {
     "start": "electron-forge start",
+    "start:profile": "electron-forge start --inspect-electron",
     "package": "electron-forge package",
     "lint": "oxlint && oxfmt --check",
     "lint:fix": "oxlint --fix && oxfmt --write",
