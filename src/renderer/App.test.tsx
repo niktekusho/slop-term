@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App.tsx';
 import {
   defaultSettings,
+  type HostKeyQuestion,
   type SessionTree,
   type Settings,
   type Shell,
@@ -501,5 +502,94 @@ describe('Session tree', () => {
     expect(tree()).toHaveTextContent(
       'Match blocks in ~/.ssh/config are ignored',
     );
+  });
+});
+
+describe('SSH Tab', () => {
+  const unknown = {
+    kind: 'unknown',
+    alias: 'db',
+    host: 'db.lan:2222',
+    type: 'ssh-ed25519',
+    fingerprint: 'SHA256:0QEMcQoudiF1gfSwRovJ4zXT3DFnOdU0sUHbHd1W/Z0',
+  } as const;
+  const changed = {
+    ...unknown,
+    kind: 'changed',
+    old: {
+      fingerprint: 'SHA256:J7OKCL/fk2lquQc2R3Zj6rMw2k1+4DV2Mgx9g/DBk+E',
+      file: '/home/me/.ssh/known_hosts',
+      line: 7,
+    },
+  } as const;
+
+  async function openDb(question?: HostKeyQuestion) {
+    const app = setup({ tree: { sessions: [{ alias: 'db' }] } });
+    await vi.waitFor(() => expect(row('db')).toBeDefined());
+    await app.user.dblClick(row('db'));
+    await vi.waitFor(() =>
+      expect(app.backend.sent('openSsh')).toEqual([['db']]),
+    );
+    if (question)
+      act(() => app.backend.emit({ type: 'hostKey', tab: 'tab-1', question }));
+    return app;
+  }
+  const button = (name: string) => screen.getByRole('button', { name });
+
+  it('opens a host from the tree as an active Tab', async () => {
+    await openDb();
+    await vi.waitFor(() =>
+      expect(
+        within(unsaved()!).getByRole('button', { name: 'db' }),
+      ).toHaveAttribute('aria-current', 'true'),
+    );
+  });
+
+  it('asks about an unknown host inside the Tab with Cancel as the default', async () => {
+    const { backend, user } = await openDb(unknown);
+    const main = screen.getByRole('main');
+    expect(main).toHaveTextContent('db.lan:2222');
+    expect(main).toHaveTextContent('ssh-ed25519');
+    expect(main).toHaveTextContent(unknown.fingerprint);
+    expect(screen.queryByRole('button', { name: /once/i })).toBeNull();
+    expect(button('Cancel')).toHaveFocus();
+
+    await user.click(button('Trust and connect'));
+    expect(backend.sent('answerHostKey')).toEqual([['tab-1', true]]);
+    expect(
+      screen.queryByRole('button', { name: 'Trust and connect' }),
+    ).toBeNull();
+  });
+
+  it('cancels with Enter on the default button', async () => {
+    const { backend, user } = await openDb(unknown);
+    await user.keyboard('{Enter}');
+    expect(backend.sent('answerHostKey')).toEqual([['tab-1', false]]);
+  });
+
+  it('names a key type already saved for the host', async () => {
+    await openDb({ ...unknown, savedType: 'ssh-rsa' });
+    expect(screen.getByRole('main')).toHaveTextContent(
+      'A ssh-rsa key for this host is already saved',
+    );
+  });
+
+  it('blocks a changed key until the user confirms the replacement', async () => {
+    const { backend, user } = await openDb(changed);
+    const warning = screen.getByRole('alert');
+    expect(warning).toHaveTextContent(changed.old.fingerprint);
+    expect(warning).toHaveTextContent(changed.fingerprint);
+    expect(warning).toHaveTextContent('/home/me/.ssh/known_hosts, line 7');
+    expect(button('Cancel')).toHaveFocus();
+
+    await user.click(button('Replace saved key'));
+    expect(backend.sent('answerHostKey')).toEqual([]);
+    expect(button('Cancel')).toHaveFocus();
+    await user.click(button('Cancel'));
+    expect(backend.sent('answerHostKey')).toEqual([]);
+
+    await user.click(button('Replace saved key'));
+    await user.click(button('Replace'));
+    expect(backend.sent('answerHostKey')).toEqual([['tab-1', true]]);
   });
 });

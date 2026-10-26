@@ -15,7 +15,10 @@ import {
  * messages cross as JSON. Starts the back end in Electron's own Node runtime
  * with a temp home folder seeded with `files` and drives it only through IPC messages. The home folder is also its app data folder.
  */
-export async function startBackend(files: Record<string, string> = {}) {
+export async function startBackend(
+  files: Record<string, string> = {},
+  env: Record<string, string> = {},
+) {
   const home = await realpath(await mkdtemp(path.join(tmpdir(), 'slop-home-')));
   for (const [name, text] of Object.entries(files)) {
     await mkdir(path.dirname(path.join(home, name)), { recursive: true });
@@ -28,6 +31,7 @@ export async function startBackend(files: Record<string, string> = {}) {
       ELECTRON_RUN_AS_NODE: '1',
       HOME: home,
       USERPROFILE: home,
+      ...env,
     },
     stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
   });

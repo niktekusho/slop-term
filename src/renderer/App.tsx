@@ -11,6 +11,7 @@ import {
   defaultSettings,
   emptyTree,
   type BackendClient,
+  type HostKeyQuestion,
   type Settings,
   type Shell,
   type TabId,
@@ -19,8 +20,9 @@ import { TerminalView } from './TerminalView.tsx';
 import { ProfilingPanel } from './ProfilingPanel.tsx';
 import { SessionTree } from './SessionTree.tsx';
 import { terminalOptions } from './look.ts';
+import { HostKeyPrompt } from './HostKeyPrompt.tsx';
 
-type Tab = { id: TabId; shell: Shell };
+type Tab = { id: TabId; label: string };
 
 const shellLabel = (shell: Shell) =>
   shell.kind === 'wsl' ? `wsl: ${shell.distro}` : shell.kind;
@@ -78,6 +80,7 @@ export function App({
   const [settings, setSettings] = useState<Settings>(defaultSettings);
   const [tree, setTree] = useState(emptyTree);
   const [query, setQuery] = useState('');
+  const [questions, setQuestions] = useState(new Map<TabId, HostKeyQuestion>());
   const filter = useRef<HTMLInputElement>(null);
   const terms = useRef(new Map<TabId, Terminal>());
   const osDark = useSyncExternalStore(
@@ -113,6 +116,8 @@ export function App({
       backend.onEvent((event) => {
         if (event.type === 'settings') return setSettings(event.settings);
         if (event.type === 'tree') return setTree(event.tree);
+        if (event.type === 'hostKey')
+          return setQuestions((q) => new Map(q).set(event.tab, event.question));
         const term = terms.current.get(event.tab);
         if (event.type === 'output') term?.write(event.data);
         else {
@@ -125,19 +130,39 @@ export function App({
     [backend],
   );
 
-  const open = useCallback(
-    async (shell: Shell) => {
-      const id = await backend.openLocalShell(shell);
+  const addTab = useCallback(
+    (id: TabId, label: string) => {
       const term = new Terminal(options);
       term.attachCustomKeyEventHandler((e) => !appShortcut(e, mac));
       term.onData((data) => backend.write(id, data));
       term.onResize((size) => backend.resize(id, size));
       terms.current.set(id, term);
-      setTabs((tabs) => [...tabs, { id, shell }]);
+      setTabs((tabs) => [...tabs, { id, label }]);
       setActive(id);
     },
     [backend, mac, options],
   );
+
+  const open = useCallback(
+    async (shell: Shell) =>
+      addTab(await backend.openLocalShell(shell), shellLabel(shell)),
+    [backend, addTab],
+  );
+
+  const openHost = useCallback(
+    async (alias: string) => addTab(await backend.openSsh(alias), alias),
+    [backend, addTab],
+  );
+
+  const answer = (tab: TabId, trust: boolean) => {
+    backend.answerHostKey(tab, trust);
+    setQuestions((q) => {
+      const next = new Map(q);
+      next.delete(tab);
+      return next;
+    });
+    terms.current.get(tab)?.focus();
+  };
 
   useEffect(() => {
     // Each step starts from the last saved size, so the app drops key repeats and wheel ticks that come faster than a save.
@@ -214,9 +239,10 @@ export function App({
         </div>
         <SessionTree
           model={tree}
-          tabs={tabs.map((t) => ({ id: t.id, label: shellLabel(t.shell) }))}
+          tabs={tabs}
           active={active}
           onSelectTab={setActive}
+          onOpenHost={openHost}
           query={query}
         />
       </nav>
@@ -229,6 +255,13 @@ export function App({
             active={tab.id === active}
           />
         ))}
+        {active && questions.has(active) && (
+          <HostKeyPrompt
+            key={active}
+            question={questions.get(active)!}
+            onAnswer={(trust) => answer(active, trust)}
+          />
+        )}
       </main>
       <ProfilingPanel profiler={backend} open={profiling} />
     </div>

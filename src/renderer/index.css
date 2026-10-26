@@ -16,6 +16,7 @@
   --faint: light-dark(#818b98, #6e7681);
   --teal: light-dark(#1b7c83, #39c5cf);
   --warn: light-dark(#9a6700, #d29922);
+  --danger: light-dark(#d1242f, #f85149);
   font:
     13px system-ui,
     sans-serif;
@@ -199,8 +200,71 @@ body,
 
 /* The terminal palettes use the canvas colour as their background. */
 .terminals {
+  position: relative;
   min-width: 0;
   background: var(--canvas);
+}
+
+/* The host key question covers the Tab's terminal, where its output would be. */
+.host-key {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  padding: 24px 32px;
+  background: var(--canvas);
+}
+
+.host-key h2 {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.host-key p {
+  max-width: 640px;
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+
+.host-key code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+}
+
+.host-key.changed [role='alert'] {
+  max-width: 640px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+}
+
+.host-key.changed h2 {
+  color: var(--danger);
+}
+
+.host-key .actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.host-key .actions p {
+  margin: 0;
+}
+
+.host-key button {
+  padding: 3px 12px;
+  font: inherit;
+  color: inherit;
+  background: var(--button);
+  border: 1px solid var(--button-border);
+  border-radius: 6px;
+}
+
+.host-key button:hover {
+  background: var(--button-hover);
 }
 
 .terminal {

@@ -67,19 +67,26 @@ function SessionRow({
   alias,
   level,
   handWritten,
+  onOpen,
 }: {
   alias: string;
   level: number;
   handWritten?: boolean;
+  onOpen(alias: string): void;
 }) {
   return (
     <li>
-      <div className="row" style={depth(level)}>
+      <button
+        className="row"
+        style={depth(level)}
+        onDoubleClick={() => onOpen(alias)}
+        onKeyDown={(e) => e.key === 'Enter' && onOpen(alias)}
+      >
         <span className="slot" />
         <span className="edge ssh" />
         <span className="name">{alias}</span>
         {handWritten && lock}
-      </div>
+      </button>
     </li>
   );
 }
@@ -89,12 +96,14 @@ export function SessionTree({
   tabs,
   active,
   onSelectTab,
+  onOpenHost,
   query,
 }: {
   model: Model;
   tabs: { id: TabId; label: string }[];
   active: TabId | undefined;
   onSelectTab(id: TabId): void;
+  onOpenHost(alias: string): void;
   query: string;
 }) {
   const [collapsed, setCollapsed] = useState(new Set<string>());
@@ -143,7 +152,14 @@ export function SessionTree({
   const sessionRows = (aliases: string[], level: number) =>
     aliases
       .toSorted(byName)
-      .map((alias) => <SessionRow key={alias} alias={alias} level={level} />);
+      .map((alias) => (
+        <SessionRow
+          key={alias}
+          alias={alias}
+          level={level}
+          onOpen={onOpenHost}
+        />
+      ));
 
   return (
     <>
@@ -171,7 +187,13 @@ export function SessionTree({
               </li>
             ))}
             {handWritten.map((alias) => (
-              <SessionRow key={alias} alias={alias} level={0} handWritten />
+              <SessionRow
+                key={alias}
+                alias={alias}
+                level={0}
+                handWritten
+                onOpen={onOpenHost}
+              />
             ))}
           </ul>
         </section>

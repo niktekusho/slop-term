@@ -37,9 +37,27 @@ export const defaultSettings: Settings = {
   scrollback: 1000,
 };
 
+/** A host key the user must decide on before an SSH Tab connects. `host` is `hostname:port`. */
+export type HostKeyQuestion = {
+  alias: string;
+  host: string;
+  type: string;
+  fingerprint: string;
+} & (
+  | { kind: 'unknown'; savedType?: string }
+  | {
+      kind: 'changed';
+      old: { fingerprint: string; file: string; line: number };
+    }
+);
+
 export interface Backend {
   listShells(): Promise<Shell[]>;
   openLocalShell(shell: Shell): Promise<TabId>;
+  /** Resolves once the Tab exists; connecting, the host key question and login follow as events. */
+  openSsh(alias: string): Promise<TabId>;
+  /** `true` trusts an unknown key, or replaces a changed one. */
+  answerHostKey(tab: TabId, trust: boolean): Promise<void>;
   write(tab: TabId, data: string): Promise<void>;
   resize(tab: TabId, size: TerminalSize): Promise<void>;
   settings(): Promise<Settings>;
@@ -67,6 +85,7 @@ export type ProcessMetrics = {
 export type BackendEvent =
   | { type: 'output'; tab: TabId; data: string }
   | { type: 'exit'; tab: TabId; code: number }
+  | { type: 'hostKey'; tab: TabId; question: HostKeyQuestion }
   | { type: 'settings'; settings: Settings }
   | { type: 'tree'; tree: SessionTree };
 
@@ -100,6 +119,8 @@ export type Message =
 const methods: { [M in keyof Backend]: true } = {
   listShells: true,
   openLocalShell: true,
+  openSsh: true,
+  answerHostKey: true,
   write: true,
   resize: true,
   settings: true,

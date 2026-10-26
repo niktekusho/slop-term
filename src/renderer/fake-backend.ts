@@ -53,6 +53,15 @@ export class FakeBackend implements BackendClient {
     return `tab-${this.nextTab++}`;
   }
 
+  async openSsh(alias: string): Promise<TabId> {
+    this.requests.push({ method: 'openSsh', args: [alias] });
+    return `tab-${this.nextTab++}`;
+  }
+
+  async answerHostKey(...args: Parameters<Backend['answerHostKey']>) {
+    this.requests.push({ method: 'answerHostKey', args });
+  }
+
   async write(...args: Parameters<Backend['write']>) {
     this.requests.push({ method: 'write', args });
   }

@@ -1,12 +1,32 @@
 import { homedir } from 'node:os';
-import { spawn, type IPty } from 'node-pty';
-import type { Backend, BackendEvent, TabId } from '../shared/ipc.ts';
+import { spawn } from 'node-pty';
+import type {
+  Backend,
+  BackendEvent,
+  TabId,
+  TerminalSize,
+} from '../shared/ipc.ts';
 import { detectShells, launchLine } from './shells.ts';
+import { openSshTab } from './ssh.ts';
+
+type Tab = {
+  write(data: string): void;
+  resize(size: TerminalSize): void;
+  answerHostKey?(trust: boolean): void;
+};
 
 export function createSessions(
   emit: (event: BackendEvent) => void,
-): Pick<Backend, 'listShells' | 'openLocalShell' | 'write' | 'resize'> {
-  const tabs = new Map<TabId, IPty>();
+): Pick<
+  Backend,
+  | 'listShells'
+  | 'openLocalShell'
+  | 'openSsh'
+  | 'answerHostKey'
+  | 'write'
+  | 'resize'
+> {
+  const tabs = new Map<TabId, Tab>();
   let nextTab = 1;
 
   return {
@@ -20,7 +40,10 @@ export function createSessions(
         env: { ...process.env, COLORTERM: 'truecolor' },
       });
       const tab = `tab-${nextTab++}`;
-      tabs.set(tab, pty);
+      tabs.set(tab, {
+        write: (data) => pty.write(data),
+        resize: ({ cols, rows }) => pty.resize(cols, rows),
+      });
       pty.onData((data) => emit({ type: 'output', tab, data }));
       pty.onExit(({ exitCode }) => {
         tabs.delete(tab);
@@ -29,12 +52,25 @@ export function createSessions(
       return tab;
     },
 
+    async openSsh(alias) {
+      const tab = `tab-${nextTab++}`;
+      tabs.set(
+        tab,
+        openSshTab(alias, tab, emit, () => tabs.delete(tab)),
+      );
+      return tab;
+    },
+
+    async answerHostKey(tab, trust) {
+      tabs.get(tab)?.answerHostKey?.(trust);
+    },
+
     async write(tab, data) {
       tabs.get(tab)?.write(data);
     },
 
-    async resize(tab, { cols, rows }) {
-      tabs.get(tab)?.resize(cols, rows);
+    async resize(tab, size) {
+      tabs.get(tab)?.resize(size);
     },
   };
 }
