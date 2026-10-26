@@ -640,6 +640,252 @@ describe('Session tree', () => {
   });
 });
 
+describe('Tabs in the tree', () => {
+  async function openHosts(aliases: string[], options = {}) {
+    const app = setup({
+      tree: { sessions: aliases.map((alias) => ({ alias })) },
+      ...options,
+    });
+    await vi.waitFor(() => expect(row(aliases[0])).toBeDefined());
+    return app;
+  }
+  const update = (backend: FakeBackend, tab: string, change: object) =>
+    act(() => backend.emit({ type: 'tab', tab, ...change } as never));
+
+  it('lists each Tab under its Saved session, opened by double-click or +', async () => {
+    const { backend, user } = await openHosts(['db', 'web']);
+    await user.dblClick(row('db'));
+    await user.click(
+      screen.getByRole('button', { name: 'Open another Tab of db' }),
+    );
+    await vi.waitFor(() => expect(backend.sent('openSsh')).toHaveLength(2));
+    update(backend, 'tab-1', { folder: '/var/log' });
+    update(backend, 'tab-2', { title: 'htop' });
+
+    expect(rowTexts()).toEqual(['db', 'log', 'htop', 'web']);
+    expect(row('log').querySelector('.edge')).toBeNull();
+    expect(row('log').style.getPropertyValue('--depth')).toBe('1');
+    expect(row('htop')).toHaveAttribute('aria-current', 'true');
+    await user.click(row('log'));
+    expect(row('log')).toHaveAttribute('aria-current', 'true');
+  });
+
+  it('shows the folder, then the title in grey unless it only names the shell', async () => {
+    const { backend, user } = await openHosts(['db']);
+    await user.dblClick(row('db'));
+    await vi.waitFor(() => expect(backend.sent('openSsh')).toHaveLength(1));
+    update(backend, 'tab-1', { folder: '/srv/my%app' });
+    update(backend, 'tab-1', { title: 'vim notes.md' });
+    expect(
+      row('my%app vim notes.md').querySelector('.detail'),
+    ).toHaveTextContent('vim notes.md');
+    update(backend, 'tab-1', {
+      title: 'C:\\Program Files\\PowerShell\\7\\pwsh.exe',
+    });
+    expect(rowTexts()).toEqual(['db', 'my%app']);
+    update(backend, 'tab-1', { title: '-bash' });
+    expect(rowTexts()).toEqual(['db', 'my%app']);
+    update(backend, 'tab-1', { folder: '/' });
+    expect(rowTexts()).toEqual(['db', '/']);
+  });
+
+  it('shows the shell and its folder for an unsaved Tab', async () => {
+    const { backend, newLocalShell } = setup();
+    await newLocalShell('zsh');
+    update(backend, 'tab-1', { folder: '/Users/me/src' });
+    expect(
+      within(unsaved()!).getByRole('button', { name: 'zsh src' }),
+    ).toBeInTheDocument();
+  });
+
+  it('numbers Tabs 1 to 9 in tree order with a keycap naming the shortcut', async () => {
+    const { backend, user, newLocalShell } = await openHosts([
+      'b-host',
+      'a-host',
+    ]);
+    await user.dblClick(row('b-host'));
+    await user.dblClick(row('a-host'));
+    await vi.waitFor(() => expect(backend.sent('openSsh')).toHaveLength(2));
+    for (let i = 0; i < 8; i++) await newLocalShell('zsh');
+    update(backend, 'tab-1', { folder: '/b-dir' });
+    update(backend, 'tab-2', { folder: '/a-dir' });
+
+    const keycaps = [...tree().querySelectorAll('.keycap')];
+    expect(keycaps.map((k) => k.textContent)).toEqual([
+      '1',
+      '2',
+      '3',
+      '4',
+      '5',
+      '6',
+      '7',
+      '8',
+      '9',
+    ]);
+    expect(keycaps[0]).toHaveAttribute('title', 'Ctrl+Shift+1');
+    // The 8 unsaved Tabs come first, then a-host's Tab, then b-host's.
+    expect(
+      row('a-dir').parentElement!.querySelector('.keycap'),
+    ).toHaveTextContent('9');
+    expect(row('a-dir')).toHaveAttribute(
+      'aria-keyshortcuts',
+      'Control+Shift+9',
+    );
+    expect(row('b-dir').parentElement!.querySelector('.keycap')).toBeNull();
+  });
+
+  it('names Cmd+N in the keycap tooltip on macOS', async () => {
+    const { newLocalShell } = setup({ mac: true });
+    await newLocalShell('zsh');
+    expect(tree().querySelector('.keycap')).toHaveAttribute('title', 'Cmd+1');
+  });
+
+  it("names the active Tab's session and user@host in the header bar", async () => {
+    const { backend, user, newLocalShell } = await openHosts(['db']);
+    await user.dblClick(row('db'));
+    await vi.waitFor(() => expect(backend.sent('openSsh')).toHaveLength(1));
+    update(backend, 'tab-1', { address: 'me@db.lan' });
+    expect(screen.getByRole('banner')).toHaveTextContent('dbme@db.lan');
+
+    await newLocalShell('bash');
+    expect(screen.getByRole('banner')).toHaveTextContent('bashlocal shell');
+  });
+});
+
+describe('exit rule', () => {
+  it('keeps a Tab that exits with a non-zero code until R restarts it', async () => {
+    const { backend, user, newLocalShell } = setup();
+    await newLocalShell('zsh');
+    act(() => backend.emit({ type: 'tab', tab: 'tab-1', folder: '/src' }));
+    act(() => backend.emit({ type: 'exit', tab: 'tab-1', code: 2 }));
+
+    expect(row('zsh src exit 2').querySelector('.exit-icon')).not.toBeNull();
+    await vi.waitFor(() =>
+      expect(screen.getByRole('main')).toHaveTextContent(
+        'process exited with code 2',
+      ),
+    );
+    await user.keyboard('x');
+    expect(written(backend)).toBe('');
+    expect(backend.sent('close')).toEqual([]);
+
+    await user.keyboard('R');
+    expect(backend.sent('restart')).toEqual([['tab-1']]);
+    expect(row('zsh src').querySelector('.exit-icon')).toBeNull();
+    await user.keyboard('ls');
+    expect(written(backend)).toBe('ls');
+  });
+
+  it('closes the Tab on exit code 0', async () => {
+    const { backend, newLocalShell } = setup();
+    await newLocalShell('zsh');
+    act(() => backend.emit({ type: 'exit', tab: 'tab-1', code: 0 }));
+    expect(backend.sent('close')).toEqual([['tab-1']]);
+    expect(rowTexts()).toEqual([]);
+  });
+});
+
+describe('Tab shortcuts', () => {
+  // b-host opens first, but a-host's Tab comes first in the tree.
+  async function twoHosts(mac = false) {
+    const app = setup({
+      mac,
+      tree: { sessions: [{ alias: 'b-host' }, { alias: 'a-host' }] },
+    });
+    await vi.waitFor(() => expect(row('a-host')).toBeDefined());
+    await app.user.dblClick(row('b-host'));
+    await app.user.dblClick(row('a-host'));
+    await vi.waitFor(() => expect(header()).toHaveTextContent('a-host'));
+    return app;
+  }
+  const header = () => screen.getByRole('banner');
+  const press = (init: KeyboardEventInit) =>
+    fireEvent.keyDown(document.activeElement ?? document.body, init);
+
+  it('cycles in tree order with Ctrl+Tab and Ctrl+Shift+Tab', async () => {
+    const { user } = await twoHosts();
+    await user.keyboard('{Control>}{Tab}{/Control}');
+    expect(header()).toHaveTextContent('b-host');
+    await user.keyboard('{Control>}{Tab}{/Control}');
+    expect(header()).toHaveTextContent('a-host');
+    await user.keyboard('{Control>}{Shift>}{Tab}{/Shift}{/Control}');
+    expect(header()).toHaveTextContent('b-host');
+  });
+
+  it('cycles with Cmd+Option+arrows and Ctrl+Tab on macOS', async () => {
+    const { user } = await twoHosts(true);
+    await user.keyboard('{Meta>}{Alt>}{ArrowRight}{/Alt}{/Meta}');
+    expect(header()).toHaveTextContent('b-host');
+    await user.keyboard('{Meta>}{Alt>}{ArrowLeft}{/Alt}{/Meta}');
+    expect(header()).toHaveTextContent('a-host');
+    await user.keyboard('{Control>}{Tab}{/Control}');
+    expect(header()).toHaveTextContent('b-host');
+  });
+
+  it('goes to the Nth Tab by the physical digit key on an Italian layout', async () => {
+    await twoHosts();
+    // Shift+2 types " on the Italian layout.
+    press({ key: '"', code: 'Digit2', ctrlKey: true, shiftKey: true });
+    expect(header()).toHaveTextContent('b-host');
+    press({ key: '!', code: 'Digit1', ctrlKey: true, shiftKey: true });
+    expect(header()).toHaveTextContent('a-host');
+    press({ key: '£', code: 'Digit3', ctrlKey: true, shiftKey: true });
+    expect(header()).toHaveTextContent('a-host');
+  });
+
+  it('goes to the Nth Tab with Cmd+N on macOS', async () => {
+    const { user } = await twoHosts(true);
+    await user.keyboard('{Meta>}2{/Meta}');
+    expect(header()).toHaveTextContent('b-host');
+  });
+
+  it('duplicates the active Tab with Ctrl+Shift+D and Cmd+D', async () => {
+    const { backend, user } = await twoHosts();
+    await user.keyboard('{Control>}{Shift>}D{/Shift}{/Control}');
+    await vi.waitFor(() =>
+      expect(backend.sent('openSsh')).toEqual([
+        ['b-host'],
+        ['a-host'],
+        ['a-host'],
+      ]),
+    );
+    cleanup();
+
+    const mac = setup({ mac: true });
+    await mac.newLocalShell('bash');
+    await mac.user.keyboard('{Meta>}d{/Meta}');
+    await vi.waitFor(() =>
+      expect(mac.backend.sent('openLocalShell')).toEqual([
+        [{ kind: 'bash' }],
+        [{ kind: 'bash' }],
+      ]),
+    );
+  });
+
+  it('closes the active Tab with Ctrl+Shift+W and moves to the next in tree order', async () => {
+    const { backend, user } = await twoHosts();
+    await user.keyboard('{Control>}{Shift>}W{/Shift}{/Control}');
+    expect(backend.sent('close')).toEqual([['tab-2']]);
+    expect(rowTexts()).toEqual(['a-host', 'b-host', 'b-host']);
+    expect(header()).toHaveTextContent('b-host');
+  });
+
+  it('closes with Cmd+W on macOS', async () => {
+    const { backend, user } = await twoHosts(true);
+    await user.keyboard('{Meta>}w{/Meta}');
+    expect(backend.sent('close')).toEqual([['tab-2']]);
+  });
+
+  it('sends plain Ctrl+D and Ctrl+W to the shell', async () => {
+    const { backend } = await twoHosts();
+    press({ key: 'd', code: 'KeyD', keyCode: 68, ctrlKey: true });
+    press({ key: 'w', code: 'KeyW', keyCode: 87, ctrlKey: true });
+    expect(written(backend)).toBe('\x04\x17');
+    expect(backend.sent('close')).toEqual([]);
+    expect(backend.sent('openSsh')).toHaveLength(2);
+  });
+});
+
 describe('SSH Tab', () => {
   const unknown = {
     kind: 'unknown',
@@ -673,11 +919,10 @@ describe('SSH Tab', () => {
 
   it('opens a host from the tree as an active Tab', async () => {
     await openDb();
-    await vi.waitFor(() =>
-      expect(
-        within(unsaved()!).getByRole('button', { name: 'db' }),
-      ).toHaveAttribute('aria-current', 'true'),
-    );
+    await vi.waitFor(() => expect(rowTexts()).toEqual(['db', 'db']));
+    const tab = tree().querySelector('.tab > .row');
+    expect(tab).toHaveAttribute('aria-current', 'true');
+    expect(unsaved()).toBeNull();
   });
 
   it('asks about an unknown host inside the Tab with Cancel as the default', async () => {

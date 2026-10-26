@@ -58,6 +58,10 @@ export interface Backend {
   openSsh(alias: string): Promise<TabId>;
   /** `true` trusts an unknown key, or replaces a changed one. */
   answerHostKey(tab: TabId, trust: boolean): Promise<void>;
+  /** Ends the Tab's shell or connection. */
+  close(tab: TabId): Promise<void>;
+  /** Opens an exited Tab again from where it came from, under the same id. */
+  restart(tab: TabId): Promise<void>;
   write(tab: TabId, data: string): Promise<void>;
   resize(tab: TabId, size: TerminalSize): Promise<void>;
   settings(): Promise<Settings>;
@@ -82,8 +86,15 @@ export type ProcessMetrics = {
   memoryKB: number;
 };
 
+/** `folder` is the decoded path from OSC 7; `title` comes from OSC 0 or 2; `address` is an SSH Tab's `user@host`. */
+export type TabUpdate =
+  | { folder: string }
+  | { title: string }
+  | { address: string };
+
 export type BackendEvent =
   | { type: 'output'; tab: TabId; data: string }
+  | ({ type: 'tab'; tab: TabId } & TabUpdate)
   | { type: 'exit'; tab: TabId; code: number }
   /** No question means the connection closed and the open question is void. */
   | { type: 'hostKey'; tab: TabId; question?: HostKeyQuestion }
@@ -122,6 +133,8 @@ const methods: { [M in keyof Backend]: true } = {
   openLocalShell: true,
   openSsh: true,
   answerHostKey: true,
+  close: true,
+  restart: true,
   write: true,
   resize: true,
   settings: true,

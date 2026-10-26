@@ -26,6 +26,7 @@ export type SshTab = {
   write(data: string): void;
   resize(size: TerminalSize): void;
   answerHostKey(trust: boolean): void;
+  close(): void;
   /** The key this Tab accepted, in base64, for its later connections. */
   hostKey?: string;
 };
@@ -102,11 +103,13 @@ export function openSshTab(
       answer?.(trust);
       answer = undefined;
     },
+    close: () => close(),
   };
 
   async function connect() {
     const r = await resolve(alias);
     if (r.jumpHost) return close(jumpHostMessage);
+    emit({ type: 'tab', tab, address: `${r.user}@${r.hostname}` });
 
     const name = knownHostName(r.hostKeyAlias ?? r.hostname, r.port);
     // `ssh -G` on Windows mixes `\` and `/`; the changed-key warning shows the native path.

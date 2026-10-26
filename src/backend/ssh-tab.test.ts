@@ -95,6 +95,25 @@ describe.skipIf(!docker)('SSH Tab against OpenSSH in Docker', () => {
     );
   });
 
+  it('reports user@host, the OSC 7 folder and the exit code', async () => {
+    await start(host('  StrictHostKeyChecking accept-new'));
+    const tab = await harness.backend.openSsh('box');
+    await loggedIn(tab);
+    await harness.backend.write(
+      tab,
+      "printf '\\033]7;file://box/home/test\\007'; exit 4\r",
+    );
+    await eventually(() =>
+      expect(harness.events).toEqual(
+        expect.arrayContaining([
+          { type: 'tab', tab, address: 'test@127.0.0.1' },
+          { type: 'tab', tab, folder: '/home/test' },
+          { type: 'exit', tab, code: 4 },
+        ]),
+      ),
+    );
+  });
+
   it('logs in through the agent and saves nothing with UserKnownHostsFile /dev/null', async () => {
     const agent = await startAgent(testKey.private);
     try {

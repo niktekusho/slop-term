@@ -46,11 +46,52 @@ describe('local shells', () => {
     await eventually(() => expect(harness.output(tab)).toContain(harness.home));
   });
 
+  it('reports the OSC 7 folder and the title as Tab updates', async () => {
+    const tab = await openFirstShell();
+    await harness.backend.write(
+      tab,
+      process.platform === 'win32'
+        ? `Write-Host -NoNewline "$([char]27)]7;file://h/C:/slop%20dir$([char]7)"; $Host.UI.RawUI.WindowTitle = 'slop-title'\r`
+        : `printf '\\033]7;file://h/tmp/slop%%20dir\\007\\033]2;slop-title\\007'\r`,
+    );
+    const folder =
+      process.platform === 'win32' ? '/C:/slop dir' : '/tmp/slop dir';
+    await eventually(() =>
+      expect(harness.events).toEqual(
+        expect.arrayContaining([
+          { type: 'tab', tab, folder },
+          { type: 'tab', tab, title: 'slop-title' },
+        ]),
+      ),
+    );
+  });
+
   it('reports the exit code when the shell exits', async () => {
     const tab = await openFirstShell();
     await harness.backend.write(tab, 'exit 3\r');
     await eventually(() =>
       expect(harness.events).toContainEqual({ type: 'exit', tab, code: 3 }),
+    );
+  });
+
+  it('restarts an exited shell in the same Tab', async () => {
+    const tab = await openFirstShell();
+    await harness.backend.write(tab, 'exit 3\r');
+    await eventually(() =>
+      expect(harness.events).toContainEqual({ type: 'exit', tab, code: 3 }),
+    );
+    await harness.backend.restart(tab);
+    await harness.backend.write(tab, 'echo slop""-again\r');
+    await eventually(() => expect(harness.output(tab)).toContain('slop-again'));
+  });
+
+  it('ends the shell when its Tab closes', async () => {
+    const tab = await openFirstShell();
+    await harness.backend.close(tab);
+    await eventually(() =>
+      expect(harness.events).toContainEqual(
+        expect.objectContaining({ type: 'exit', tab }),
+      ),
     );
   });
 });
