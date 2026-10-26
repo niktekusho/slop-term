@@ -77,6 +77,11 @@ export function openSshTab(
   const close = (message?: string) => {
     if (closed) return;
     closed = true;
+    if (answer) {
+      answer(false);
+      answer = undefined;
+      emit({ type: 'hostKey', tab });
+    }
     if (message) print(message);
     client.end();
     onClose();
@@ -202,6 +207,9 @@ export function openSshTab(
         port: r.port,
         username: r.user,
         authHandler: auth,
+        // The handshake waits on the host key question for as long as the user reads it.
+        // ponytail: no handshake timeout; sshd's LoginGraceTime still drops a stalled login.
+        readyTimeout: 0,
         algorithms: savedTypes.length
           ? {
               serverHostKey: {

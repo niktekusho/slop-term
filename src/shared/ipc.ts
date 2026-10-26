@@ -85,7 +85,8 @@ export type ProcessMetrics = {
 export type BackendEvent =
   | { type: 'output'; tab: TabId; data: string }
   | { type: 'exit'; tab: TabId; code: number }
-  | { type: 'hostKey'; tab: TabId; question: HostKeyQuestion }
+  /** No question means the connection closed and the open question is void. */
+  | { type: 'hostKey'; tab: TabId; question?: HostKeyQuestion }
   | { type: 'settings'; settings: Settings }
   | { type: 'tree'; tree: SessionTree };
 

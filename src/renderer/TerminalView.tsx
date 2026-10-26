@@ -3,7 +3,7 @@ import type { ITerminalOptions, Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import { WebglAddon } from '@xterm/addon-webgl';
-import { appShortcut } from './shortcuts.ts';
+import { appShortcut, terminalShortcut } from './shortcuts.ts';
 
 export function TerminalView({
   term,
@@ -80,8 +80,7 @@ export function TerminalView({
 
   const onKeyDown = async (e: React.KeyboardEvent) => {
     const shortcut = appShortcut(e.nativeEvent, mac);
-    if (shortcut !== 'copy' && shortcut !== 'paste' && shortcut !== 'find')
-      return;
+    if (!terminalShortcut(shortcut)) return;
     e.preventDefault();
     e.stopPropagation();
     if (shortcut === 'copy') copy();

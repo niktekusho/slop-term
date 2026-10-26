@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { homedir } from 'node:os';
+import { homedir, userInfo } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
@@ -9,16 +9,17 @@ const expandTilde = (file: string) =>
   file.startsWith('~') ? path.join(homedir(), file.slice(1)) : file;
 
 /**
- * Runs `ssh -G` with the `ssh` on PATH. OpenSSH finds `~` from the account, not from HOME:
- * `-F` makes it read the config the Session tree shows.
+ * Runs `ssh -G` with the `ssh` on PATH. OpenSSH finds `~` from the account, not from HOME.
+ * `-F` would skip the system `ssh_config`, so it is passed only when HOME points elsewhere, as in tests.
  */
 export async function resolve(
   alias: string,
-  config = path.join(homedir(), '.ssh', 'config'),
+  config = homedir() === userInfo().homedir
+    ? undefined
+    : path.join(homedir(), '.ssh', 'config'),
 ) {
   const { stdout } = await promisify(execFile)('ssh', [
-    '-F',
-    config,
+    ...(config ? ['-F', config] : []),
     '-G',
     '--',
     alias,

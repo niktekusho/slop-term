@@ -31,3 +31,9 @@ export const appShortcut = (e: KeyboardEvent, mac: boolean) => {
     )
   );
 };
+
+/** The terminal handles its own clipboard and find keys; elsewhere they keep their native meaning. */
+export const terminalShortcut = (
+  shortcut: string | undefined,
+): shortcut is 'copy' | 'paste' | 'find' =>
+  shortcut === 'copy' || shortcut === 'paste' || shortcut === 'find';

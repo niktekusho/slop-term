@@ -702,6 +702,13 @@ describe('SSH Tab', () => {
     expect(backend.sent('answerHostKey')).toEqual([['tab-1', false]]);
   });
 
+  it('drops the question when the connection closes first', async () => {
+    const { backend } = await openDb(unknown);
+    act(() => backend.emit({ type: 'hostKey', tab: 'tab-1' }));
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+    expect(backend.sent('answerHostKey')).toEqual([]);
+  });
+
   it('names a key type already saved for the host', async () => {
     await openDb({ ...unknown, savedType: 'ssh-rsa' });
     expect(screen.getByRole('main')).toHaveTextContent(

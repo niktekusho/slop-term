@@ -21,7 +21,7 @@ import { ProfilingPanel } from './ProfilingPanel.tsx';
 import { SessionTree } from './SessionTree.tsx';
 import { terminalOptions } from './look.ts';
 import { HostKeyPrompt } from './HostKeyPrompt.tsx';
-import { appShortcut } from './shortcuts.ts';
+import { appShortcut, terminalShortcut } from './shortcuts.ts';
 
 type Tab = { id: TabId; label: string };
 
@@ -87,7 +87,12 @@ export function App({
         if (event.type === 'settings') return setSettings(event.settings);
         if (event.type === 'tree') return setTree(event.tree);
         if (event.type === 'hostKey')
-          return setQuestions((q) => new Map(q).set(event.tab, event.question));
+          return setQuestions((q) => {
+            const next = new Map(q);
+            if (event.question) next.set(event.tab, event.question);
+            else next.delete(event.tab);
+            return next;
+          });
         const term = terms.current.get(event.tab);
         if (event.type === 'output') term?.write(event.data);
         else {
@@ -145,14 +150,7 @@ export function App({
     };
     const onKey = (e: KeyboardEvent) => {
       const shortcut = appShortcut(e, mac);
-      // The terminal handles its own clipboard and find keys; elsewhere they keep their native meaning.
-      if (
-        !shortcut ||
-        shortcut === 'copy' ||
-        shortcut === 'paste' ||
-        shortcut === 'find'
-      )
-        return;
+      if (!shortcut || terminalShortcut(shortcut)) return;
       e.preventDefault();
       if (shortcut === 'profiling') setProfiling((p) => !p);
       else if (shortcut === 'settings') backend.openSettings();
