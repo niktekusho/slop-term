@@ -155,6 +155,141 @@ describe('terminal', () => {
   });
 });
 
+const written = (backend: FakeBackend) =>
+  backend
+    .sent('write')
+    .map(([, data]) => data)
+    .join('');
+
+describe('clipboard', () => {
+  it('pastes a single line with Ctrl+Shift+V without asking', async () => {
+    const { backend, user, newLocalShell } = setup();
+    await newLocalShell('zsh');
+    await navigator.clipboard.writeText('ls -la');
+    await user.keyboard('{Control>}{Shift>}V{/Shift}{/Control}');
+    await vi.waitFor(() => expect(written(backend)).toBe('ls -la'));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+  });
+
+  it('asks before pasting several lines and pastes them on Paste', async () => {
+    const { backend, user, newLocalShell } = setup();
+    await newLocalShell('zsh');
+    await navigator.clipboard.writeText('cd /tmp\nrm -rf *');
+    await user.keyboard('{Control>}{Shift>}V{/Shift}{/Control}');
+    const question = await screen.findByRole('alertdialog');
+    expect(question).toHaveTextContent(
+      'Paste 2 lines? Each line may run as a command.',
+    );
+    expect(written(backend)).toBe('');
+    await user.click(within(question).getByRole('button', { name: 'Paste' }));
+    await vi.waitFor(() => expect(written(backend)).toBe('cd /tmp\rrm -rf *'));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+  });
+
+  it('sends nothing on Cancel, which has the focus', async () => {
+    const { backend, user, newLocalShell } = setup();
+    await newLocalShell('zsh');
+    await navigator.clipboard.writeText('a\nb\nc');
+    await user.keyboard('{Control>}{Shift>}V{/Shift}{/Control}');
+    const cancel = within(await screen.findByRole('alertdialog')).getByRole(
+      'button',
+      { name: 'Cancel' },
+    );
+    expect(cancel).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(written(backend)).toBe('');
+  });
+
+  it('pastes on right-click, asking for line breaks', async () => {
+    const { backend, user, newLocalShell } = setup();
+    await newLocalShell('zsh');
+    await navigator.clipboard.writeText('make\ntest');
+    await user.pointer({
+      keys: '[MouseRight]',
+      target: screen.getByRole('main').querySelector('.terminal')!,
+    });
+    await screen.findByRole('alertdialog');
+    expect(written(backend)).toBe('');
+  });
+
+  it('asks before a paste from the Edit menu or the system', async () => {
+    const { backend, newLocalShell } = setup();
+    await newLocalShell('zsh');
+    fireEvent.paste(document.activeElement!, {
+      clipboardData: { getData: () => 'one\ntwo' },
+    });
+    await screen.findByRole('alertdialog');
+    expect(written(backend)).toBe('');
+  });
+
+  it('pastes with Cmd+V on macOS', async () => {
+    const { backend, user, newLocalShell } = setup({ mac: true });
+    await newLocalShell('zsh');
+    await navigator.clipboard.writeText('pwd');
+    await user.keyboard('{Meta>}v{/Meta}');
+    await vi.waitFor(() => expect(written(backend)).toBe('pwd'));
+  });
+
+  it('sends plain Ctrl+C to the shell', async () => {
+    const { backend, newLocalShell } = setup();
+    await newLocalShell('zsh');
+    // xterm reads `keyCode` for Ctrl+letter, which user-event leaves at 0.
+    fireEvent.keyDown(document.activeElement!, {
+      key: 'c',
+      code: 'KeyC',
+      keyCode: 67,
+      ctrlKey: true,
+    });
+    expect(written(backend)).toBe('\x03');
+  });
+
+  it('asks for a single line that ends in a line break', async () => {
+    const { user, newLocalShell } = setup();
+    await newLocalShell('zsh');
+    await navigator.clipboard.writeText('reboot\r\n');
+    await user.keyboard('{Control>}{Shift>}V{/Shift}{/Control}');
+    expect(await screen.findByRole('alertdialog')).toHaveTextContent(
+      'Paste 1 line? Each line may run as a command.',
+    );
+  });
+});
+
+describe('find', () => {
+  async function shellWithOutput(mac = false) {
+    const s = setup({ mac });
+    await s.newLocalShell('zsh');
+    act(() =>
+      s.backend.emit({
+        type: 'output',
+        tab: 'tab-1',
+        data: 'alpha needle omega\r\n',
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(screen.getByRole('main')).toHaveTextContent('needle'),
+    );
+    return s;
+  }
+
+  it('selects the match, which Ctrl+Shift+C copies after Escape', async () => {
+    const { user } = await shellWithOutput();
+    await user.keyboard('{Control>}{Shift>}F{/Shift}{/Control}');
+    await user.type(screen.getByRole('searchbox', { name: 'Find' }), 'needle');
+    await user.keyboard('{Enter}{Escape}');
+    expect(screen.queryByRole('searchbox', { name: 'Find' })).toBeNull();
+    await user.keyboard('{Control>}{Shift>}C{/Shift}{/Control}');
+    expect(await navigator.clipboard.readText()).toBe('needle');
+  });
+
+  it('opens with Cmd+F on macOS and says when nothing matches', async () => {
+    const { user } = await shellWithOutput(true);
+    await user.keyboard('{Meta>}f{/Meta}');
+    await user.type(screen.getByRole('searchbox', { name: 'Find' }), 'nothere');
+    expect(screen.getByText('No results')).toBeInTheDocument();
+  });
+});
+
 const os = { dark: false, listeners: new Set<() => void>() };
 function setOsDark(dark: boolean) {
   os.dark = dark;

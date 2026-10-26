@@ -203,6 +203,56 @@ body,
   position: relative;
   min-width: 0;
   background: var(--canvas);
+  position: relative;
+}
+
+.question,
+.find {
+  position: absolute;
+  top: 8px;
+  right: 16px;
+  z-index: 1;
+  background: var(--overlay);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px var(--shadow);
+}
+
+.find {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.question {
+  max-width: 320px;
+  padding: 12px;
+}
+
+.question p {
+  margin: 0 0 12px;
+}
+
+.question-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.question button {
+  font: inherit;
+  color: inherit;
+  padding: 3px 12px;
+  background: var(--button);
+  border: 1px solid var(--button-border);
+  border-radius: 6px;
+}
+
+.question button:hover {
+  background: var(--button-hover);
 }
 
 /* The host key question covers the Tab's terminal, where its output would be. */
