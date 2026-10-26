@@ -19,42 +19,12 @@ import { TerminalView } from './TerminalView.tsx';
 import { ProfilingPanel } from './ProfilingPanel.tsx';
 import { SessionTree } from './SessionTree.tsx';
 import { terminalOptions } from './look.ts';
+import { appShortcut } from './shortcuts.ts';
 
 type Tab = { id: TabId; shell: Shell };
 
 const shellLabel = (shell: Shell) =>
   shell.kind === 'wsl' ? `wsl: ${shell.distro}` : shell.kind;
-
-// Windows shortcuts are always Ctrl+Shift so plain Ctrl keys reach the shell; macOS uses Cmd, some with Shift.
-const shortcuts = {
-  newTab: { code: 'KeyT', macShift: false },
-  filter: { code: 'KeyO', macShift: true },
-  profiling: { code: 'KeyM', macShift: true },
-};
-
-// Zoom and settings take plain Ctrl and match the typed character with any Shift: `=` is Shift+0 on the Italian layout.
-const characterShortcuts: Partial<
-  Record<string, 'zoomIn' | 'zoomOut' | 'zoomReset' | 'settings'>
-> = {
-  '+': 'zoomIn',
-  '=': 'zoomIn',
-  '-': 'zoomOut',
-  '0': 'zoomReset',
-  ',': 'settings',
-};
-
-const appShortcut = (e: KeyboardEvent, mac: boolean) => {
-  const command = mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
-  if (!command || e.altKey) return;
-  return (
-    characterShortcuts[e.key] ??
-    (Object.keys(shortcuts) as (keyof typeof shortcuts)[]).find(
-      (name) =>
-        e.code === shortcuts[name].code &&
-        e.shiftKey === (mac ? shortcuts[name].macShift : true),
-    )
-  );
-};
 
 const darkQuery = () => window.matchMedia('(prefers-color-scheme: dark)');
 const subscribeToOsMode = (onChange: () => void) => {
@@ -150,7 +120,14 @@ export function App({
     };
     const onKey = (e: KeyboardEvent) => {
       const shortcut = appShortcut(e, mac);
-      if (!shortcut) return;
+      // The terminal handles its own clipboard and find keys; elsewhere they keep their native meaning.
+      if (
+        !shortcut ||
+        shortcut === 'copy' ||
+        shortcut === 'paste' ||
+        shortcut === 'find'
+      )
+        return;
       e.preventDefault();
       if (shortcut === 'profiling') setProfiling((p) => !p);
       else if (shortcut === 'settings') backend.openSettings();
@@ -227,6 +204,7 @@ export function App({
             term={terms.current.get(tab.id)!}
             options={options}
             active={tab.id === active}
+            mac={mac}
           />
         ))}
       </main>
