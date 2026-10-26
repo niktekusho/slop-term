@@ -48,8 +48,11 @@ const words = (line: Line & { value?: unknown }) =>
     ? [line.value]
     : ((line.value ?? []) as { val: string }[]).map((v) => v.val);
 
+// Warnings show `~/.ssh/config` on every system, as the user types it in OpenSSH config.
 const tildePath = (file: string) =>
-  file.startsWith(homedir()) ? '~' + file.slice(homedir().length) : file;
+  file.startsWith(homedir())
+    ? '~' + file.slice(homedir().length).replaceAll(path.sep, '/')
+    : file;
 
 const cantRead = (file: string, e: unknown) =>
   `Can't read ${tildePath(file)}: ${(e as Error).message}`;
