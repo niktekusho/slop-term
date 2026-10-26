@@ -6,7 +6,7 @@
 
 **Blocked by:** 01 — Walking skeleton: unsaved local shell Tab
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] Selecting text in the terminal copies it; right-click pastes.
 - [x] Ctrl+Shift+C / Ctrl+Shift+V on Windows and Cmd+C / Cmd+V on macOS copy and paste.

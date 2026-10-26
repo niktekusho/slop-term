@@ -6,7 +6,7 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] Electron 44 app built with Electron Forge (Vite + TypeScript template, Forge version pinned), React UI, npm. `npm run package` builds a runnable app on each system; no installer.
 - [x] The whole back end runs in one Electron `utilityProcess`; the main process only manages the window and relays messages; the UI talks to the back end only by IPC.

@@ -6,7 +6,7 @@
 
 **Blocked by:** 01 — Walking skeleton: unsaved local shell Tab
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] `settings.json` lives in the app data folder (`%APPDATA%\slop-term\` on Windows), is not synced, and is watched: saving it applies the change without a restart. A missing file means defaults.
 - [x] Ctrl+, / Cmd+, opens `settings.json` in the configured editor (else `code`, else Notepad++, else the OS default).

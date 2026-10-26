@@ -6,7 +6,7 @@
 
 **Blocked by:** 04 — Session tree from SSH config
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] The resolver runs `ssh -G <alias>` with the `ssh` on PATH and connects `ssh2` 1.17.0 with its `HostName`, `Port`, `User` and `IdentityFile` values; login tries the agent, then the `IdentityFile` keys. A passphrase-protected key is out of this ticket (ticket 08).
 - [x] `proxyjump` or `proxycommand` other than `none` fails the connect with "This host uses a jump host. slop-term v1 can't connect to it."

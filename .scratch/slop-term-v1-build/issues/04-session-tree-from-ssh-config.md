@@ -6,7 +6,7 @@
 
 **Blocked by:** 01 — Walking skeleton: unsaved local shell Tab
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] The include line goes at the top of `~/.ssh/config` once, as a line edit; nothing else in that file changes. A missing `~/.ssh/config` is created with only that line.
 - [x] The config store reads the Managed config with `ssh-config` 5.3.0, follows `Include` itself, ignores `Match` blocks and shows a warning when it finds one.

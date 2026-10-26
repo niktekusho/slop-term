@@ -6,7 +6,7 @@
 
 **Blocked by:** 01 — Walking skeleton: unsaved local shell Tab
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] `npm run start:profile` passes `--inspect` to the main process and, through `execArgv`, to the back-end `utilityProcess`; Chrome DevTools can attach to both.
 - [x] Ctrl+Shift+M (Windows) / Cmd+Shift+M (macOS) opens and closes the profiling panel under the terminal.
