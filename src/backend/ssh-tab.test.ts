@@ -311,7 +311,9 @@ describe.skipIf(!docker)('SSH Tab against OpenSSH in Docker', () => {
       return { hosts: { box: { credential } } };
     }
 
-    it('asks for a password on a Saved session, logs in and saves it to the keychain', async () => {
+    it('asks for a password on a Saved session, logs in and saves it under user@host-port, next to a taken name', async () => {
+      const account = `test@127.0.0.1-${server.port}`;
+      await keychain(account).setPassword('someone else');
       await start('', { managed: passwordHost() });
       const tab = await harness.backend.openSsh('box');
       await eventually(() =>
@@ -322,11 +324,11 @@ describe.skipIf(!docker)('SSH Tab against OpenSSH in Docker', () => {
       const credential = await savedCredential();
       expect(credential).toEqual({
         provider: 'keychain',
-        entry: expect.any(String),
+        entry: `${account}-2`,
         kind: 'password',
       });
-      expect(credential.entry).not.toBe('box');
       await savedSecret(credential.entry, 'hunter2');
+      expect(await keychain(account).getPassword()).toBe('someone else');
     });
 
     it('offers no save on a Hand-written host', async () => {
@@ -413,7 +415,11 @@ describe.skipIf(!docker)('SSH Tab against OpenSSH in Docker', () => {
       await harness.backend.answerSecret(tab, ['open sesame'], true);
       await loggedIn(tab);
       const credential = await savedCredential();
-      expect(credential.kind).toBe('passphrase');
+      expect(credential).toEqual({
+        provider: 'keychain',
+        entry: 'passphrase-id_locked',
+        kind: 'passphrase',
+      });
       expect(await keychain(credential.entry).getPassword()).toBe(
         'open sesame',
       );

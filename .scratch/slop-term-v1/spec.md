@@ -285,7 +285,7 @@ The UI modules are the Session tree, the terminal view, the SFTP pane, the Saved
 // From "Credential provider interface", with the KeePass correction.
 type CredentialReference = {
   provider: "keychain" | "tpm" | "keepass";
-  entry: string; // keychain: app-generated id; tpm: numeric password id; keepass: "<database name>/<32 lowercase hex uuid>"
+  entry: string; // keychain: user@host[-port] or passphrase-<key file>, with -2, -3 when taken; tpm: numeric password id; keepass: "<database name>/<32 lowercase hex uuid>"
   kind: "password" | "passphrase";
 };
 
@@ -298,7 +298,7 @@ interface CredentialProvider {
 ```
 
 - A Saved session has at most one reference. Only Managed hosts and Local shell sessions carry Sidecar data; Hand-written hosts carry none.
-- The keychain entry id never equals the alias, so a rename can't orphan a secret.
+- A new keychain entry is named after what the secret unlocks, so the user can find it in the OS keychain: `user@host` for a password (`user@host-port` when the port isn't 22), `passphrase-<key file name>` for a passphrase. The name keeps only letters, digits and `._@-`, because keychains differ in which characters they accept. A name already in use gets `-2`, `-3` and so on, so a save never overwrites another entry. The reference stores the entry id, so renaming the alias or changing `HostName` later never orphans the secret; the entry keeps its old name.
 - Provider secrets are never cached. Exceptions: a password the user typed stays in back-end memory for its Tab's lifetime (or until a typed `ssh` exits), and an unlocked KeePass database stays in memory until quit, sleep, screen lock or "Lock KeePass".
 - Ask rules: no reference asks on connect with "Save to"; a reference that reads fine connects; a failed read shows the reason and asks; a failed login asks with "Update saved secret". Keychain is the default on every "Save to".
 - Write order when saving from a prompt: the secret first; if the provider refuses, nothing else is written; then the config files; a config conflict keeps the saved secret.

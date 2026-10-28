@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import {
   appendFileSync,
   mkdirSync,
@@ -23,7 +22,7 @@ import type {
   TerminalSize,
 } from '../shared/ipc.ts';
 import { savedSession, saveCredential } from './config-store.ts';
-import { provider } from './credentials.ts';
+import { newKeychainEntry, provider } from './credentials.ts';
 import {
   fingerprint,
   hostEntry,
@@ -206,10 +205,18 @@ export function openSshTab(
     const title = `Password for ${r.user}@${r.hostname}`;
     const offers: Partial<Record<Kind, SecretQuestion['save']>> = {};
     const fromProvider: Partial<Record<Kind, boolean>> = {};
-    let toSave: { kind: Kind; secret: string } | undefined;
+    // A password belongs to an account, a passphrase to a key file: new keychain entries are named after them.
+    const account = `${r.user}@${r.hostname}${r.port === 22 ? '' : `-${r.port}`}`;
+    type Save = { kind: Kind; secret: string; name: string };
+    let toSave: Save | undefined;
 
     /** Typed, then read from the reference, then asked. `retry` means the last one was rejected. */
-    async function secret(kind: Kind, heading: string, retry = false) {
+    async function secret(
+      kind: Kind,
+      heading: string,
+      name: string,
+      retry = false,
+    ) {
       const own = ref?.kind === kind ? ref : undefined;
       let reason: string | undefined;
       if (retry) {
@@ -249,23 +256,22 @@ export function openSshTab(
       if (!got) return undefined;
       const answer = got.answers[0] ?? '';
       typed[kind] = answer;
-      toSave = got.save && offers[kind] ? { kind, secret: answer } : undefined;
+      toSave =
+        got.save && offers[kind] ? { kind, secret: answer, name } : undefined;
       return answer;
     }
 
     // The secret goes first: a refusal writes nothing else, and a Sidecar conflict keeps the saved secret.
-    async function saveSecret({
-      kind,
-      secret,
-    }: {
-      kind: Kind;
-      secret: string;
-    }) {
-      const target: CredentialReference =
-        ref?.kind === kind
-          ? ref
-          : { provider: 'keychain', entry: randomUUID(), kind };
+    async function saveSecret({ kind, secret, name }: Save) {
       try {
+        const target: CredentialReference =
+          ref?.kind === kind
+            ? ref
+            : {
+                provider: 'keychain',
+                entry: await newKeychainEntry(name),
+                kind,
+              };
         await provider(target).write(target, secret);
         if (target !== ref) saveCredential(alias, target, session!.read);
       } catch (e) {
@@ -302,6 +308,7 @@ export function openSshTab(
         const passphrase = await secret(
           'passphrase',
           `Passphrase for ${file}`,
+          `passphrase-${path.basename(file)}`,
           retry,
         );
         if (passphrase === undefined) return cancelled();
@@ -324,7 +331,7 @@ export function openSshTab(
         const failed = (e: Error) => close(e.message);
         if (rounds === 1 && prompts.length === 1 && !prompts[0].echo) {
           passwordSentBy = 'keyboard-interactive';
-          secret('password', title, retry).then(
+          secret('password', title, account, retry).then(
             (p) => answered(p === undefined ? undefined : [p]),
             failed,
           );
@@ -349,7 +356,7 @@ export function openSshTab(
       if (lockedKey) return unlock(lockedKey);
       rounds = 0;
       if (allows('password')) {
-        const password = await secret('password', title, retry);
+        const password = await secret('password', title, account, retry);
         if (password === undefined) return cancelled();
         passwordSentBy = 'password';
         return { type: 'password' as const, username, password };

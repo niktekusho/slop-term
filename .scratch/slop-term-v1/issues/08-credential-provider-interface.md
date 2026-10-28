@@ -44,3 +44,5 @@ Correction (2026-10-21, from "Saving passwords typed for `ssh <host>`"): in poin
 Correction (2026-10-21, from "Saving passwords typed for `ssh <host>`" point 10): in point 4, the app no longer deletes a keychain entry on its own. Deleting the last Saved session that points at an entry asks, with an unticked checkbox, whether to delete the secret too.
 
 Correction (2026-10-22, from "Creating and editing SSH Saved sessions" point 9): in point 9, the Hand-written host case no longer exists, because only Managed hosts carry a Credential reference.
+
+Correction (2026-10-28, while building "Password login and keychain provider"): in point 3, a keychain entry id is no longer random. A new entry is named after what the secret unlocks, so the user can find and clean up entries in the OS keychain: `user@host` for a password (`user@host-port` when the port isn't 22) and `passphrase-<key file name>` for a passphrase. The id keeps only letters, digits and `._@-`, and gets `-2`, `-3` when the name is taken. A rename still can't orphan a secret, because the reference stores the id; the entry just keeps its old name.
