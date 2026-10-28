@@ -5,14 +5,15 @@ import { FuseV1Options, FuseVersion } from '@electron/fuses';
 
 const config: ForgeConfig = {
   packagerConfig: {
-    // node-pty is a native module Vite can't bundle: ship it beside the bundle and outside the asar.
-    asar: { unpack: '**/node_modules/node-pty/**' },
+    // node-pty and the keyring are native modules Vite can't bundle: ship them beside the bundle and outside the asar.
+    asar: { unpack: '**/node_modules/{node-pty,@napi-rs}/**' },
     ignore: (file) =>
       !!file &&
       !file.startsWith('/.vite') &&
       file !== '/package.json' &&
       file !== '/node_modules' &&
-      !file.startsWith('/node_modules/node-pty'),
+      !file.startsWith('/node_modules/node-pty') &&
+      !file.startsWith('/node_modules/@napi-rs'),
   },
   // node-pty ships N-API prebuilds for Windows and macOS: a rebuild only adds a C++ toolchain requirement.
   rebuildConfig: { onlyModules: [] },

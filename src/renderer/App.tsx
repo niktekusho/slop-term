@@ -12,6 +12,7 @@ import {
   emptyTree,
   type BackendClient,
   type HostKeyQuestion,
+  type SecretQuestion,
   type Settings,
   type Shell,
   type TabId,
@@ -27,7 +28,16 @@ import {
 } from './SessionTree.tsx';
 import { terminalOptions } from './look.ts';
 import { HostKeyPrompt } from './HostKeyPrompt.tsx';
+import { SecretPrompt } from './SecretPrompt.tsx';
 import { appShortcut, terminalShortcut } from './shortcuts.ts';
+
+/** No question removes the Tab's entry. */
+function withQuestion<Q>(questions: Map<TabId, Q>, tab: TabId, question?: Q) {
+  const next = new Map(questions);
+  if (question) next.set(tab, question);
+  else next.delete(tab);
+  return next;
+}
 
 const darkQuery = () => window.matchMedia('(prefers-color-scheme: dark)');
 const subscribeToOsMode = (onChange: () => void) => {
@@ -52,6 +62,7 @@ export function App({
   const [tree, setTree] = useState(emptyTree);
   const [query, setQuery] = useState('');
   const [questions, setQuestions] = useState(new Map<TabId, HostKeyQuestion>());
+  const [secrets, setSecrets] = useState(new Map<TabId, SecretQuestion>());
   const filter = useRef<HTMLInputElement>(null);
   const terms = useRef(new Map<TabId, Terminal>());
   const osDark = useSyncExternalStore(
@@ -115,12 +126,11 @@ export function App({
           return updateTab(tab, update);
         }
         if (event.type === 'hostKey')
-          return setQuestions((q) => {
-            const next = new Map(q);
-            if (event.question) next.set(event.tab, event.question);
-            else next.delete(event.tab);
-            return next;
-          });
+          return setQuestions((q) =>
+            withQuestion(q, event.tab, event.question),
+          );
+        if (event.type === 'secret')
+          return setSecrets((q) => withQuestion(q, event.tab, event.question));
         const term = terms.current.get(event.tab);
         if (!term) return;
         if (event.type === 'output') term.write(event.data);
@@ -167,11 +177,17 @@ export function App({
 
   const answer = (tab: TabId, trust: boolean) => {
     backend.answerHostKey(tab, trust);
-    setQuestions((q) => {
-      const next = new Map(q);
-      next.delete(tab);
-      return next;
-    });
+    setQuestions((q) => withQuestion(q, tab));
+    terms.current.get(tab)?.focus();
+  };
+
+  const answerSecret = (
+    tab: TabId,
+    answers: string[] | null,
+    save: boolean,
+  ) => {
+    backend.answerSecret(tab, answers, save);
+    setSecrets((q) => withQuestion(q, tab));
     terms.current.get(tab)?.focus();
   };
 
@@ -314,6 +330,13 @@ export function App({
             key={active}
             question={questions.get(active)!}
             onAnswer={(trust) => answer(active, trust)}
+          />
+        )}
+        {active && secrets.has(active) && (
+          <SecretPrompt
+            key={active}
+            question={secrets.get(active)!}
+            onAnswer={(answers, save) => answerSecret(active, answers, save)}
           />
         )}
       </main>

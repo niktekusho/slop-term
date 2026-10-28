@@ -2,6 +2,7 @@ import { fork } from 'node:child_process';
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import electronPath from 'electron';
 import {
   createClient,
@@ -14,10 +15,12 @@ import {
  * Vitest's Node and Electron's Node have different V8 serialization versions:
  * messages cross as JSON. Starts the back end in Electron's own Node runtime
  * with a temp home folder seeded with `files` and drives it only through IPC messages. The home folder is also its app data folder.
+ * Each of `imports` loads before the back end, so a test can add a fake Credential provider.
  */
 export async function startBackend(
   files: Record<string, string> = {},
   env: Record<string, string> = {},
+  imports: string[] = [],
 ) {
   const home = await realpath(await mkdtemp(path.join(tmpdir(), 'slop-home-')));
   for (const [name, text] of Object.entries(files)) {
@@ -26,6 +29,7 @@ export async function startBackend(
   }
   const child = fork(path.join(import.meta.dirname, 'main.ts'), [home], {
     execPath: electronPath as unknown as string,
+    execArgv: imports.flatMap((file) => ['--import', pathToFileURL(file).href]),
     env: {
       ...process.env,
       ELECTRON_RUN_AS_NODE: '1',

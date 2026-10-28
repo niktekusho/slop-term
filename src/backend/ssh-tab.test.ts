@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { AsyncEntry, findCredentialsAsync } from '@napi-rs/keyring';
 import { utils } from 'ssh2';
 import {
   afterAll,
@@ -11,7 +12,7 @@ import {
   it,
   vi,
 } from 'vitest';
-import type { TabId } from '../shared/ipc.ts';
+import type { CredentialReference, TabId } from '../shared/ipc.ts';
 import { startBackend } from './harness.ts';
 import { fingerprint, savedKeys } from './known-hosts.ts';
 import { dockerRunning, startAgent, startSshServer } from './ssh-server.ts';
@@ -26,18 +27,64 @@ const knownHosts = () => path.join(harness.home, '.ssh', 'known_hosts');
 // OpenSSH expands `~` from the account, not from the temp HOME: test configs name files by absolute path.
 const quoted = (file: string) => `"${file.replaceAll('\\', '/')}"`;
 
-/** Starts the back end with `config` as `~/.ssh/config`; `$KNOWN` stands for the temp known_hosts. */
+// Secrets go to a keychain service of this test run, never the app's own.
+const service = `slop-term-test-${process.pid}`;
+const keychain = (entry: string) => new AsyncEntry(service, entry);
+
+/**
+ * Starts the back end with `config` as `~/.ssh/config` and `managed` as the Managed config, which `config` includes.
+ * `$KNOWN` stands for the temp known_hosts.
+ */
 async function start(
   config: string,
-  { env = {}, known }: { env?: Record<string, string>; known?: string } = {},
+  {
+    env = {},
+    known,
+    managed,
+    sidecar,
+    imports,
+  }: {
+    env?: Record<string, string>;
+    known?: string;
+    managed?: string;
+    sidecar?: object;
+    imports?: string[];
+  } = {},
 ) {
-  harness = await startBackend({ '.ssh/id_test': testKey.private }, env);
-  await writeFile(
-    path.join(harness.home, '.ssh', 'config'),
-    config.replaceAll('$KNOWN', quoted(knownHosts())),
+  harness = await startBackend(
+    { '.ssh/id_test': testKey.private, '.ssh/id_locked': lockedKey.private },
+    { SLOP_TERM_KEYCHAIN_SERVICE: service, ...env },
+    imports,
   );
+  const ssh = (name: string) => path.join(harness.home, '.ssh', name);
+  const fill = (text: string) =>
+    text.replaceAll('$KNOWN', quoted(knownHosts()));
+  // OpenSSH reads `Include ~/...` from the account home, so the test names the Managed config by its full path.
+  const include = managed ? `Include ${quoted(ssh('slop-term.conf'))}\n` : '';
+  if (managed) await writeFile(ssh('slop-term.conf'), fill(managed));
+  if (sidecar) await writeFile(ssh('slop-term.json'), JSON.stringify(sidecar));
+  await writeFile(ssh('config'), include + fill(config));
   if (known !== undefined) await writeFile(knownHosts(), known);
 }
+
+const sidecar = async () =>
+  JSON.parse(
+    await readFile(path.join(harness.home, '.ssh', 'slop-term.json'), 'utf8'),
+  );
+
+// Saving runs after the login, so it can finish after the shell prompt shows.
+async function savedCredential(): Promise<CredentialReference> {
+  let credential: CredentialReference | undefined;
+  await eventually(async () => {
+    credential = (await sidecar()).hosts.box.credential;
+    expect(credential).toBeDefined();
+  });
+  return credential!;
+}
+const savedSecret = (entry: string, secret: string) =>
+  eventually(async () =>
+    expect(await keychain(entry).getPassword()).toBe(secret),
+  );
 
 const question = (tab: TabId) =>
   harness.events.flatMap((e) =>
@@ -51,6 +98,11 @@ async function loggedIn(tab: TabId) {
 }
 
 const testKey = utils.generateKeyPairSync('ed25519');
+const lockedKey = utils.generateKeyPairSync('ed25519', {
+  passphrase: 'open sesame',
+  cipher: 'aes256-ctr',
+  rounds: 16,
+});
 
 it('refuses a host that uses a jump host', async () => {
   await start('Host hop\n  ProxyJump bastion\n');
@@ -69,7 +121,10 @@ if (!docker)
 describe.skipIf(!docker)('SSH Tab against OpenSSH in Docker', () => {
   let server: Awaited<ReturnType<typeof startSshServer>>;
   beforeAll(async () => {
-    server = await startSshServer(testKey.public);
+    server = await startSshServer(
+      [testKey.public, lockedKey.public],
+      'hunter2',
+    );
   }, 90_000);
   afterAll(() => server?.stop());
 
@@ -225,5 +280,209 @@ describe.skipIf(!docker)('SSH Tab against OpenSSH in Docker', () => {
         },
       ]),
     );
+  });
+
+  describe('password and passphrase login', () => {
+    afterEach(async () => {
+      for (const { account } of await findCredentialsAsync(service))
+        await keychain(account).deletePassword();
+    });
+    const passwordHost = () =>
+      host('  StrictHostKeyChecking accept-new').replace(
+        '~/.ssh/id_test',
+        '~/.ssh/missing',
+      );
+    const asked = (tab: TabId) =>
+      harness.events.flatMap((e) =>
+        e.type === 'secret' && e.tab === tab ? [e.question] : [],
+      );
+    const password = {
+      alias: 'box',
+      title: 'Password for test@127.0.0.1',
+      prompts: [{ prompt: 'Password', echo: false }],
+    };
+    async function savedReference(entry: string, secret: string) {
+      await keychain(entry).setPassword(secret);
+      const credential: CredentialReference = {
+        provider: 'keychain',
+        entry,
+        kind: 'password',
+      };
+      return { hosts: { box: { credential } } };
+    }
+
+    it('asks for a password on a Saved session, logs in and saves it to the keychain', async () => {
+      await start('', { managed: passwordHost() });
+      const tab = await harness.backend.openSsh('box');
+      await eventually(() =>
+        expect(asked(tab)).toEqual([{ ...password, save: 'new' }]),
+      );
+      await harness.backend.answerSecret(tab, ['hunter2'], true);
+      await loggedIn(tab);
+      const credential = await savedCredential();
+      expect(credential).toEqual({
+        provider: 'keychain',
+        entry: expect.any(String),
+        kind: 'password',
+      });
+      expect(credential.entry).not.toBe('box');
+      await savedSecret(credential.entry, 'hunter2');
+    });
+
+    it('offers no save on a Hand-written host', async () => {
+      await start(passwordHost());
+      const tab = await harness.backend.openSsh('box');
+      await eventually(() => expect(asked(tab)).toEqual([password]));
+      await harness.backend.answerSecret(tab, ['hunter2'], true);
+      await loggedIn(tab);
+      expect(
+        existsSync(path.join(harness.home, '.ssh', 'slop-term.json')),
+      ).toBe(false);
+    });
+
+    it('connects without asking when the saved password reads fine', async () => {
+      const entry = `ok-${process.pid}`;
+      await start('', {
+        managed: passwordHost(),
+        sidecar: await savedReference(entry, 'hunter2'),
+      });
+      const tab = await harness.backend.openSsh('box');
+      await loggedIn(tab);
+      expect(asked(tab)).toEqual([]);
+    });
+
+    it('shows why a read failed, asks and saves under the same reference', async () => {
+      const entry = `missing-${process.pid}`;
+      const reference = await savedReference(entry, 'unused');
+      await keychain(entry).deletePassword();
+      await start('', { managed: passwordHost(), sidecar: reference });
+      const tab = await harness.backend.openSsh('box');
+      await eventually(() =>
+        expect(asked(tab)).toEqual([
+          {
+            ...password,
+            reason: 'No saved password in the keychain on this machine.',
+            save: 'same',
+          },
+        ]),
+      );
+      await harness.backend.answerSecret(tab, ['hunter2'], true);
+      await loggedIn(tab);
+      await savedSecret(entry, 'hunter2');
+      expect(await sidecar()).toEqual(reference);
+    });
+
+    it('asks again with "Update saved secret" when the saved password is wrong', async () => {
+      const entry = `wrong-${process.pid}`;
+      await start('', {
+        managed: passwordHost(),
+        sidecar: await savedReference(entry, 'wrong'),
+      });
+      const tab = await harness.backend.openSsh('box');
+      await eventually(() =>
+        expect(asked(tab)).toEqual([
+          {
+            ...password,
+            reason: 'The saved password was rejected.',
+            save: 'update',
+          },
+        ]),
+      );
+      await harness.backend.answerSecret(tab, ['hunter2'], true);
+      await loggedIn(tab);
+      await savedSecret(entry, 'hunter2');
+    });
+
+    it('unlocks a key with a passphrase and saves it as a passphrase', async () => {
+      await start('', {
+        managed: host('  StrictHostKeyChecking accept-new').replace(
+          '~/.ssh/id_test',
+          '~/.ssh/id_locked',
+        ),
+      });
+      const tab = await harness.backend.openSsh('box');
+      await eventually(() =>
+        expect(asked(tab)).toMatchObject([
+          {
+            title: expect.stringMatching(/^Passphrase for .*id_locked$/),
+            prompts: [{ prompt: 'Passphrase', echo: false }],
+            save: 'new',
+          },
+        ]),
+      );
+      await harness.backend.answerSecret(tab, ['open sesame'], true);
+      await loggedIn(tab);
+      const credential = await savedCredential();
+      expect(credential.kind).toBe('passphrase');
+      expect(await keychain(credential.entry).getPassword()).toBe(
+        'open sesame',
+      );
+    });
+
+    it('shows a refusal as one line and still logs in with the typed password', async () => {
+      const reference = {
+        hosts: {
+          box: {
+            credential: { provider: 'refusing', entry: '7', kind: 'password' },
+          },
+        },
+      };
+      await start('', {
+        managed: passwordHost(),
+        sidecar: reference,
+        imports: [path.join(import.meta.dirname, 'refusing-provider.ts')],
+      });
+      const tab = await harness.backend.openSsh('box');
+      await eventually(() =>
+        expect(asked(tab)).toEqual([
+          {
+            ...password,
+            reason: 'The refusing provider has no secrets.',
+            save: 'same',
+          },
+        ]),
+      );
+      await harness.backend.answerSecret(tab, ['hunter2'], true);
+      await loggedIn(tab);
+      await eventually(() =>
+        expect(harness.output(tab)).toContain(
+          '\r\nNot saved: The refusing provider is read-only.\r\n',
+        ),
+      );
+      expect(await sidecar()).toEqual(reference);
+    });
+
+    it('stops with a conflict when the Sidecar entry changed while asking, keeping the saved secret', async () => {
+      await start('', { managed: passwordHost(), sidecar: { hosts: {} } });
+      const tab = await harness.backend.openSsh('box');
+      await eventually(() => expect(asked(tab)).toHaveLength(1));
+      const edited = { hosts: { box: { folder: 'Work' } } };
+      await writeFile(
+        path.join(harness.home, '.ssh', 'slop-term.json'),
+        JSON.stringify(edited),
+      );
+      await harness.backend.answerSecret(tab, ['hunter2'], true);
+      await loggedIn(tab);
+      await eventually(() =>
+        expect(harness.output(tab)).toContain(
+          'Not saved: slop-term.json changed for box since it was read.',
+        ),
+      );
+      expect(await sidecar()).toEqual(edited);
+      const [kept] = await findCredentialsAsync(service);
+      expect(kept.password).toBe('hunter2');
+    });
+
+    it('closes the Tab when the user cancels the question', async () => {
+      await start(passwordHost());
+      const tab = await harness.backend.openSsh('box');
+      await eventually(() => expect(asked(tab)).toHaveLength(1));
+      await harness.backend.answerSecret(tab, null, false);
+      await eventually(() =>
+        expect(harness.output(tab)).toContain(
+          'Not connected: login cancelled.',
+        ),
+      );
+    });
   });
 });

@@ -34,8 +34,8 @@ function banner(port: number) {
   });
 }
 
-/** An OpenSSH server in Docker that lets user `test` in with `publicKey`. */
-export async function startSshServer(publicKey: string) {
+/** An OpenSSH server in Docker that lets user `test` in with any of `publicKeys` or with `password`. */
+export async function startSshServer(publicKeys: string[], password?: string) {
   const id = await run(
     'run',
     '-d',
@@ -43,7 +43,10 @@ export async function startSshServer(publicKey: string) {
     '-e',
     'USER_NAME=test',
     '-e',
-    `PUBLIC_KEY=${publicKey}`,
+    `PUBLIC_KEY=${publicKeys.join('\n')}`,
+    ...(password
+      ? ['-e', 'PASSWORD_ACCESS=true', '-e', `USER_PASSWORD=${password}`]
+      : []),
     '-p',
     '127.0.0.1::2222',
     'lscr.io/linuxserver/openssh-server:latest',

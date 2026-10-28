@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   appendFileSync,
   mkdirSync,
@@ -6,13 +7,23 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
-import { Client, type AnyAuthMethod, type ClientChannel } from 'ssh2';
+// Node's ESM loader finds `Client` in ssh2's CommonJS exports, not `utils`.
+import ssh2, {
+  Client,
+  type AnyAuthMethod,
+  type ClientChannel,
+  type Prompt,
+} from 'ssh2';
 import type {
   BackendEvent,
+  CredentialReference,
   HostKeyQuestion,
+  SecretQuestion,
   TabId,
   TerminalSize,
 } from '../shared/ipc.ts';
+import { savedSession, saveCredential } from './config-store.ts';
+import { provider } from './credentials.ts';
 import {
   fingerprint,
   hostEntry,
@@ -26,6 +37,7 @@ export type SshTab = {
   write(data: string): void;
   resize(size: TerminalSize): void;
   answerHostKey(trust: boolean): void;
+  answerSecret(answers: string[] | null, save: boolean): void;
   close(): void;
   /** The key this Tab accepted, in base64, for its later connections. */
   hostKey?: string;
@@ -42,6 +54,11 @@ const algorithms: Record<string, string[]> = {
   'ecdsa-sha2-nistp521': ['ecdsa-sha2-nistp521'],
   'ssh-rsa': ['rsa-sha2-512', 'rsa-sha2-256', 'ssh-rsa'],
 };
+
+type Kind = CredentialReference['kind'];
+/** Secrets the user typed, kept in memory for the Tab's lifetime. Provider secrets are never kept. */
+export type Typed = Partial<Record<Kind, string>>;
+type Reply = { answers: string[]; save: boolean };
 
 const nullDevice = (file: string) => /^(\/dev\/null|nul)$/i.test(file);
 
@@ -66,11 +83,13 @@ export function openSshTab(
   tab: TabId,
   emit: (event: BackendEvent) => void,
   onClose: () => void,
+  typed: Typed,
 ): SshTab {
   const client = new Client();
   let size: TerminalSize = { cols: 80, rows: 24 };
   let channel: ClientChannel | undefined;
   let answer: ((trust: boolean) => void) | undefined;
+  let reply: ((reply?: Reply) => void) | undefined;
   let closed = false;
 
   const print = (text: string) =>
@@ -83,6 +102,11 @@ export function openSshTab(
       answer = undefined;
       emit({ type: 'hostKey', tab });
     }
+    if (reply) {
+      reply();
+      reply = undefined;
+      emit({ type: 'secret', tab });
+    }
     if (message) print(message);
     client.end();
     onClose();
@@ -91,6 +115,12 @@ export function openSshTab(
     new Promise<boolean>((resolve) => {
       answer = resolve;
       emit({ type: 'hostKey', tab, question });
+    });
+
+  const askSecret = (question: SecretQuestion) =>
+    new Promise<Reply | undefined>((resolve) => {
+      reply = resolve;
+      emit({ type: 'secret', tab, question });
     });
 
   const sshTab: SshTab = {
@@ -102,6 +132,10 @@ export function openSshTab(
     answerHostKey(trust) {
       answer?.(trust);
       answer = undefined;
+    },
+    answerSecret(answers, save) {
+      reply?.(answers ? { answers, save } : undefined);
+      reply = undefined;
     },
     close: () => close(),
   };
@@ -165,15 +199,164 @@ export function openSshTab(
       return trust;
     }
 
+    // Undefined for a Hand-written host: it carries no reference and offers no save.
+    const session = savedSession(alias);
+    const ref = session?.credential;
+    const username = r.user;
+    const title = `Password for ${r.user}@${r.hostname}`;
+    const offers: Partial<Record<Kind, SecretQuestion['save']>> = {};
+    const fromProvider: Partial<Record<Kind, boolean>> = {};
+    let toSave: { kind: Kind; secret: string } | undefined;
+
+    /** Typed, then read from the reference, then asked. `retry` means the last one was rejected. */
+    async function secret(kind: Kind, heading: string, retry = false) {
+      const own = ref?.kind === kind ? ref : undefined;
+      let reason: string | undefined;
+      if (retry) {
+        delete typed[kind];
+        if (fromProvider[kind]) {
+          reason = `The saved ${kind} was rejected.`;
+          offers[kind] = 'update';
+        } else
+          reason =
+            kind === 'password'
+              ? 'Permission denied, please try again.'
+              : "That passphrase doesn't unlock the key.";
+      } else if (typed[kind]) return typed[kind];
+      else if (own)
+        try {
+          const read = await provider(own).read(own);
+          fromProvider[kind] = true;
+          return read;
+        } catch (e) {
+          reason = (e as Error).message;
+          offers[kind] = 'same';
+        }
+      else if (session && !ref) offers[kind] = 'new';
+      fromProvider[kind] = false;
+      const got = await askSecret({
+        alias,
+        title: heading,
+        prompts: [
+          {
+            prompt: kind === 'password' ? 'Password' : 'Passphrase',
+            echo: false,
+          },
+        ],
+        ...(reason && { reason }),
+        ...(offers[kind] && { save: offers[kind] }),
+      });
+      if (!got) return undefined;
+      const answer = got.answers[0] ?? '';
+      typed[kind] = answer;
+      toSave = got.save && offers[kind] ? { kind, secret: answer } : undefined;
+      return answer;
+    }
+
+    // The secret goes first: a refusal writes nothing else, and a Sidecar conflict keeps the saved secret.
+    async function saveSecret({
+      kind,
+      secret,
+    }: {
+      kind: Kind;
+      secret: string;
+    }) {
+      const target: CredentialReference =
+        ref?.kind === kind
+          ? ref
+          : { provider: 'keychain', entry: randomUUID(), kind };
+      try {
+        await provider(target).write(target, secret);
+        if (target !== ref) saveCredential(alias, target, session!.read);
+      } catch (e) {
+        print(`Not saved: ${(e as Error).message}`);
+      }
+    }
+
+    const cancelled = () => {
+      close('Not connected: login cancelled.');
+      return false as const;
+    };
+
     const agent = agentPath();
-    const keys = r.identityFiles.flatMap((file) => {
+    const keyFiles = r.identityFiles.flatMap((file) => {
       const key = readText(file);
-      return key ? [{ type: 'publickey' as const, username: r.user, key }] : [];
+      return key ? [{ file, key }] : [];
     });
-    const auth: AnyAuthMethod[] = [
-      ...(agent ? [{ type: 'agent' as const, username: r.user, agent }] : []),
-      ...keys,
+    // ssh2 has no "is encrypted" check: parsing without a passphrase fails with a message that names it.
+    const locked = ({ key }: { key: string }) => {
+      const parsed = ssh2.utils.parseKey(key);
+      return parsed instanceof Error && /passphrase/i.test(parsed.message);
+    };
+    const plain: AnyAuthMethod[] = [
+      ...(agent ? [{ type: 'agent' as const, username, agent }] : []),
+      ...keyFiles
+        .filter((k) => !locked(k))
+        .map(({ key }) => ({ type: 'publickey' as const, username, key })),
     ];
+    const lockedKeys = keyFiles.filter(locked);
+
+    // A wrong passphrase fails here, before the server sees the key.
+    async function unlock({ file, key }: { file: string; key: string }) {
+      for (let retry = false; ; retry = true) {
+        const passphrase = await secret(
+          'passphrase',
+          `Passphrase for ${file}`,
+          retry,
+        );
+        if (passphrase === undefined) return cancelled();
+        if (!(ssh2.utils.parseKey(key, passphrase) instanceof Error))
+          return { type: 'publickey' as const, username, key, passphrase };
+      }
+    }
+
+    // ponytail: keyboard-interactive prompts are asked on every connect, never saved. Only a single hidden prompt in one round counts as the password.
+    let rounds = 0;
+    // The method that last sent a password. Only a rejection by that same method makes the next ask a retry.
+    let passwordSentBy: 'password' | 'keyboard-interactive' | undefined;
+    const interactive = (retry: boolean): AnyAuthMethod => ({
+      type: 'keyboard-interactive',
+      username,
+      prompt(name, instructions, _lang, prompts: Prompt[], finish) {
+        rounds++;
+        const answered = (answers: string[] | undefined) =>
+          answers ? finish(answers) : cancelled();
+        const failed = (e: Error) => close(e.message);
+        if (rounds === 1 && prompts.length === 1 && !prompts[0].echo) {
+          passwordSentBy = 'keyboard-interactive';
+          secret('password', title, retry).then(
+            (p) => answered(p === undefined ? undefined : [p]),
+            failed,
+          );
+          return;
+        }
+        askSecret({
+          alias,
+          title: instructions || name || title,
+          prompts: prompts.map((p) => ({ prompt: p.prompt, echo: !!p.echo })),
+        }).then((got) => answered(got?.answers), failed);
+      },
+    });
+
+    async function nextAuth(left: string[] | null, partial: boolean) {
+      const allows = (method: string) => !left || left.includes(method);
+      const retry =
+        !!passwordSentBy && !partial && !!left?.includes(passwordSentBy);
+      passwordSentBy = undefined;
+      const next = retry ? undefined : plain.shift();
+      if (next) return next;
+      const lockedKey = !retry && allows('publickey') && lockedKeys.shift();
+      if (lockedKey) return unlock(lockedKey);
+      rounds = 0;
+      if (allows('password')) {
+        const password = await secret('password', title, retry);
+        if (password === undefined) return cancelled();
+        passwordSentBy = 'password';
+        return { type: 'password' as const, username, password };
+      }
+      if (allows('keyboard-interactive')) return interactive(retry);
+      return false as const;
+    }
 
     let declined = false;
     client
@@ -184,7 +367,11 @@ export function openSshTab(
           declined ? 'Not connected: the host key was not trusted.' : e.message,
         );
       })
-      .on('ready', () =>
+      .on('ready', () => {
+        // A second keyboard-interactive round means the first prompt wasn't the whole login.
+        if (toSave && rounds <= 1) void saveSecret(toSave);
+        else if (toSave)
+          print('Not saved: this host asks more than one question to log in.');
         client.shell({ term: 'xterm-256color', ...size }, (err, stream) => {
           if (err) return close(err.message);
           channel = stream;
@@ -202,14 +389,19 @@ export function openSshTab(
             close();
             emit({ type: 'exit', tab, code });
           });
-        }),
-      )
+        });
+      })
       .on('close', () => close('Connection closed.'))
       .connect({
         host: r.hostname,
         port: r.port,
         username: r.user,
-        authHandler: auth,
+        authHandler: (left, partial, next) => {
+          nextAuth(left, partial).then(
+            (method) => next(method as AnyAuthMethod),
+            (e: Error) => close(e.message),
+          );
+        },
         // The handshake waits on the host key question for as long as the user reads it.
         // ponytail: no handshake timeout; sshd's LoginGraceTime still drops a stalled login.
         readyTimeout: 0,

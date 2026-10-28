@@ -13,7 +13,7 @@ export function HostKeyPrompt({
 
   if (q.kind === 'unknown')
     return (
-      <section className="host-key" aria-label="Host key">
+      <section className="tab-prompt" aria-label="Host key">
         <h2>Unknown host {q.alias}</h2>
         <p>
           The authenticity of <code>{q.host}</code> can't be established.
@@ -34,7 +34,7 @@ export function HostKeyPrompt({
     );
 
   return (
-    <section className="host-key changed" aria-label="Host key">
+    <section className="tab-prompt changed" aria-label="Host key">
       <div role="alert">
         <h2>The host key for {q.alias} has changed</h2>
         <p>

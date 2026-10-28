@@ -8,13 +8,14 @@ import type {
 } from '../shared/ipc.ts';
 import { detectShells, launchLine } from './shells.ts';
 import { oscScanner } from './osc.ts';
-import { openSshTab } from './ssh.ts';
+import { openSshTab, type Typed } from './ssh.ts';
 
 type Tab = {
   write(data: string): void;
   resize(size: TerminalSize): void;
   close(): void;
   answerHostKey?(trust: boolean): void;
+  answerSecret?(answers: string[] | null, save: boolean): void;
 };
 
 type Open = (
@@ -31,6 +32,7 @@ export function createSessions(
   | 'openLocalShell'
   | 'openSsh'
   | 'answerHostKey'
+  | 'answerSecret'
   | 'close'
   | 'restart'
   | 'write'
@@ -85,13 +87,19 @@ export function createSessions(
     },
 
     async openSsh(alias) {
+      // Lives as long as the Tab, so a restart reuses what the user typed.
+      const typed: Typed = {};
       return launch((tab, emit, onClose) =>
-        openSshTab(alias, tab, emit, onClose),
+        openSshTab(alias, tab, emit, onClose, typed),
       );
     },
 
     async answerHostKey(tab, trust) {
       tabs.get(tab)?.answerHostKey?.(trust);
+    },
+
+    async answerSecret(tab, answers, save) {
+      tabs.get(tab)?.answerSecret?.(answers, save);
     },
 
     async close(tab) {

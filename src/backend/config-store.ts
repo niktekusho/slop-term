@@ -8,7 +8,12 @@ import {
 import { homedir } from 'node:os';
 import path from 'node:path';
 import SSHConfig, { LineType, type Line } from 'ssh-config';
-import type { Backend, BackendEvent, SessionTree } from '../shared/ipc.ts';
+import type {
+  Backend,
+  BackendEvent,
+  CredentialReference,
+  SessionTree,
+} from '../shared/ipc.ts';
 
 const includeLine = 'Include ~/.ssh/slop-term.conf';
 const managedInclude =
@@ -98,6 +103,29 @@ function scanLines(lines: Line[], file: string, scan: Scan, depth: number) {
   }
 }
 
+type RawSidecar = {
+  folders?: unknown;
+  hosts?: Record<string, Record<string, unknown>>;
+};
+
+const ssh = (name: string) => path.join(homedir(), '.ssh', name);
+
+/** Throws a message the user can read for a file that is unreadable or not JSON. */
+function parseSidecar(file: string): RawSidecar {
+  try {
+    return JSON.parse(readText(file) ?? '{}') ?? {};
+  } catch (e) {
+    throw new Error(
+      e instanceof SyntaxError
+        ? `slop-term.json is not valid JSON: ${e.message}`
+        : cantRead(file, e),
+    );
+  }
+}
+
+const sidecarEntry = (raw: RawSidecar, alias: string) =>
+  Object.hasOwn(raw.hosts ?? {}, alias) ? raw.hosts?.[alias] : undefined;
+
 type Sidecar = {
   folders: string[];
   folderOf: (alias: string) => string | undefined;
@@ -105,34 +133,69 @@ type Sidecar = {
 
 // The file is synced and edited by hand, so every field is checked before use.
 function readSidecar(file: string, warnings: Set<string>): Sidecar {
-  let raw: { folders?: unknown; hosts?: Record<string, { folder?: unknown }> } =
-    {};
+  let raw: RawSidecar = {};
   try {
-    raw = JSON.parse(readText(file) ?? '{}') ?? {};
+    raw = parseSidecar(file);
   } catch (e) {
-    warnings.add(
-      e instanceof SyntaxError
-        ? `slop-term.json is not valid JSON: ${e.message}`
-        : cantRead(file, e),
-    );
+    warnings.add((e as Error).message);
   }
   const folders = Array.isArray(raw.folders) ? raw.folders : [];
   return {
     folders: folders.filter((f) => typeof f === 'string'),
     folderOf(alias) {
-      const folder = Object.hasOwn(raw.hosts ?? {}, alias)
-        ? raw.hosts?.[alias]?.folder
-        : undefined;
+      const folder = sidecarEntry(raw, alias)?.folder;
       return typeof folder === 'string' && folder ? folder : undefined;
     },
   };
+}
+
+function credentialOf(entry: Record<string, unknown> | undefined) {
+  const c = entry?.credential as Record<string, unknown> | undefined;
+  return typeof c?.provider === 'string' &&
+    typeof c.entry === 'string' &&
+    (c.kind === 'password' || c.kind === 'passphrase')
+    ? (c as CredentialReference)
+    : undefined;
+}
+
+/**
+ * The Credential reference of an SSH Saved session, and its Sidecar entry as read now, which a later save checks for conflicts.
+ * Undefined for a Hand-written host, which carries no Sidecar data.
+ */
+export function savedSession(alias: string) {
+  const managed = ssh('slop-term.conf');
+  const scan: Scan = { hosts: new Set(), warnings: new Set(), managed };
+  scanFile(managed, scan, 0);
+  if (!scan.hosts.has(alias)) return undefined;
+  let raw: RawSidecar = {};
+  try {
+    raw = parseSidecar(ssh('slop-term.json'));
+  } catch {
+    // The tree shows the warning; a save re-reads the file and reports the reason.
+  }
+  const entry = sidecarEntry(raw, alias);
+  return { credential: credentialOf(entry), read: JSON.stringify(entry) };
+}
+
+/** Re-reads the Sidecar file and stops with a conflict if the session's entry changed since `read`. */
+export function saveCredential(
+  alias: string,
+  credential: CredentialReference,
+  read: string | undefined,
+) {
+  const file = ssh('slop-term.json');
+  const raw = parseSidecar(file);
+  if (JSON.stringify(sidecarEntry(raw, alias)) !== read)
+    throw new Error(`slop-term.json changed for ${alias} since it was read.`);
+  raw.hosts = { ...raw.hosts, [alias]: { ...raw.hosts?.[alias], credential } };
+  writeFileSync(file, JSON.stringify(raw, null, 2) + '\n');
 }
 
 export function createConfigStore(
   emit: (event: BackendEvent) => void,
 ): Pick<Backend, 'getTree'> {
   const dir = path.join(homedir(), '.ssh');
-  const managed = path.join(dir, 'slop-term.conf');
+  const managed = ssh('slop-term.conf');
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   addInclude(path.join(dir, 'config'));
 

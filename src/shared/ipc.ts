@@ -51,6 +51,24 @@ export type HostKeyQuestion = {
     }
 );
 
+/** Where a Saved session's secret lives. `entry` is the provider's id for it, never the alias. */
+export type CredentialReference = {
+  provider: string;
+  entry: string;
+  kind: 'password' | 'passphrase';
+};
+
+/** A login question shown inside the Tab. A prompt with `echo` false hides what the user types. */
+export type SecretQuestion = {
+  alias: string;
+  title: string;
+  prompts: { prompt: string; echo: boolean }[];
+  /** Why the app asks although the session has a Credential reference. */
+  reason?: string;
+  /** `new` offers "Save to: keychain / don't save"; `same` saves under the session's reference; `update` replaces its saved secret. */
+  save?: 'new' | 'same' | 'update';
+};
+
 export interface Backend {
   listShells(): Promise<Shell[]>;
   openLocalShell(shell: Shell): Promise<TabId>;
@@ -58,6 +76,12 @@ export interface Backend {
   openSsh(alias: string): Promise<TabId>;
   /** `true` trusts an unknown key, or replaces a changed one. */
   answerHostKey(tab: TabId, trust: boolean): Promise<void>;
+  /** One answer per prompt; `null` cancels the login. `save` follows the question's save offer. */
+  answerSecret(
+    tab: TabId,
+    answers: string[] | null,
+    save: boolean,
+  ): Promise<void>;
   /** Ends the Tab's shell or connection. */
   close(tab: TabId): Promise<void>;
   /** Opens an exited Tab again from where it came from, under the same id. */
@@ -96,8 +120,9 @@ export type BackendEvent =
   | { type: 'output'; tab: TabId; data: string }
   | ({ type: 'tab'; tab: TabId } & TabUpdate)
   | { type: 'exit'; tab: TabId; code: number }
-  /** No question means the connection closed and the open question is void. */
+  /** For both questions, none means the connection closed and the open question is void. */
   | { type: 'hostKey'; tab: TabId; question?: HostKeyQuestion }
+  | { type: 'secret'; tab: TabId; question?: SecretQuestion }
   | { type: 'settings'; settings: Settings }
   | { type: 'tree'; tree: SessionTree };
 
@@ -133,6 +158,7 @@ const methods: { [M in keyof Backend]: true } = {
   openLocalShell: true,
   openSsh: true,
   answerHostKey: true,
+  answerSecret: true,
   close: true,
   restart: true,
   write: true,

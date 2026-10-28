@@ -350,8 +350,8 @@ body,
   background: var(--button-hover);
 }
 
-/* The host key question covers the Tab's terminal, where its output would be. */
-.host-key {
+/* A host key or login question covers the Tab's terminal, where its output would be. */
+.tab-prompt {
   position: absolute;
   inset: 0;
   overflow: auto;
@@ -359,24 +359,24 @@ body,
   background: var(--canvas);
 }
 
-.host-key h2 {
+.tab-prompt h2 {
   margin: 0 0 12px;
   font-size: 16px;
   font-weight: 600;
 }
 
-.host-key p {
+.tab-prompt p {
   max-width: 640px;
   margin: 0 0 8px;
   line-height: 1.5;
 }
 
-.host-key code {
+.tab-prompt code {
   font-family: 'JetBrains Mono', monospace;
   font-size: 12px;
 }
 
-.host-key.changed [role='alert'] {
+.tab-prompt.changed [role='alert'] {
   max-width: 640px;
   margin-bottom: 16px;
   padding: 12px 16px;
@@ -384,22 +384,22 @@ body,
   border-radius: 6px;
 }
 
-.host-key.changed h2 {
+.tab-prompt.changed h2 {
   color: var(--danger);
 }
 
-.host-key .actions {
+.tab-prompt .actions {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-top: 16px;
 }
 
-.host-key .actions p {
+.tab-prompt .actions p {
   margin: 0;
 }
 
-.host-key button {
+.tab-prompt button {
   padding: 3px 12px;
   font: inherit;
   color: inherit;
@@ -408,8 +408,35 @@ body,
   border-radius: 6px;
 }
 
-.host-key button:hover {
+.tab-prompt button:hover {
   background: var(--button-hover);
+}
+
+.tab-prompt [role='alert'] {
+  color: var(--warn);
+}
+
+.tab-prompt .field {
+  display: grid;
+  gap: 4px;
+  max-width: 320px;
+  margin-bottom: 12px;
+}
+
+.tab-prompt .field input,
+.tab-prompt .field select {
+  padding: 4px 8px;
+  font: inherit;
+  color: inherit;
+  background: var(--canvas-subtle);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.tab-prompt .check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .terminal {

@@ -62,6 +62,10 @@ export class FakeBackend implements BackendClient {
     this.requests.push({ method: 'answerHostKey', args });
   }
 
+  async answerSecret(...args: Parameters<Backend['answerSecret']>) {
+    this.requests.push({ method: 'answerSecret', args });
+  }
+
   async close(...args: Parameters<Backend['close']>) {
     this.requests.push({ method: 'close', args });
   }

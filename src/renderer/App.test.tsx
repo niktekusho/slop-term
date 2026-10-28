@@ -12,6 +12,7 @@ import { App } from './App.tsx';
 import {
   defaultSettings,
   type HostKeyQuestion,
+  type SecretQuestion,
   type SessionTree,
   type Settings,
   type Shell,
@@ -978,5 +979,105 @@ describe('SSH Tab', () => {
     await user.click(button('Replace saved key'));
     await user.click(button('Replace'));
     expect(backend.sent('answerHostKey')).toEqual([['tab-1', true]]);
+  });
+
+  const password = {
+    alias: 'db',
+    title: 'Password for me@db.lan',
+    prompts: [{ prompt: 'Password', echo: false }],
+  };
+  async function asked(question: SecretQuestion) {
+    const app = await openDb();
+    act(() => app.backend.emit({ type: 'secret', tab: 'tab-1', question }));
+    return app;
+  }
+
+  it('asks for a password inside the Tab and saves to the keychain by default', async () => {
+    const { backend, user } = await asked({ ...password, save: 'new' });
+    expect(
+      screen.getByRole('heading', { name: 'Password for me@db.lan' }),
+    ).toBeInTheDocument();
+    const field = screen.getByLabelText('Password');
+    expect(field).toHaveAttribute('type', 'password');
+    expect(field).toHaveFocus();
+    expect(screen.getByLabelText('Save to')).toHaveValue('keychain');
+
+    await user.keyboard('hunter2{Enter}');
+    expect(backend.sent('answerSecret')).toEqual([
+      ['tab-1', ['hunter2'], true],
+    ]);
+    expect(screen.queryByLabelText('Password')).toBeNull();
+  });
+
+  it("saves nothing when the user picks don't save", async () => {
+    const { backend, user } = await asked({ ...password, save: 'new' });
+    await user.selectOptions(screen.getByLabelText('Save to'), "don't save");
+    await user.type(screen.getByLabelText('Password'), 'hunter2{Enter}');
+    expect(backend.sent('answerSecret')).toEqual([
+      ['tab-1', ['hunter2'], false],
+    ]);
+  });
+
+  it('shows why it asks and offers "Update saved secret" after a rejected saved password', async () => {
+    const { backend, user } = await asked({
+      ...password,
+      reason: 'The saved password was rejected.',
+      save: 'update',
+    });
+    expect(screen.getByRole('main')).toHaveTextContent(
+      'The saved password was rejected.',
+    );
+    const update = screen.getByRole('checkbox', {
+      name: 'Update saved secret',
+    });
+    expect(update).toBeChecked();
+    await user.click(update);
+    await user.type(screen.getByLabelText('Password'), 'new{Enter}');
+    expect(backend.sent('answerSecret')).toEqual([['tab-1', ['new'], false]]);
+  });
+
+  it('offers to save under the existing reference after a failed read', async () => {
+    const { backend, user } = await asked({
+      ...password,
+      reason: 'No saved password in the keychain on this machine.',
+      save: 'same',
+    });
+    expect(screen.getByRole('checkbox', { name: 'Save it' })).toBeChecked();
+    await user.keyboard('hunter2{Enter}');
+    expect(backend.sent('answerSecret')).toEqual([
+      ['tab-1', ['hunter2'], true],
+    ]);
+  });
+
+  it('shows every keyboard-interactive prompt with no save offer', async () => {
+    const { backend, user } = await asked({
+      alias: 'db',
+      title: 'Two-factor login',
+      prompts: [
+        { prompt: 'Password:', echo: false },
+        { prompt: 'Code:', echo: true },
+      ],
+    });
+    expect(screen.getByLabelText('Code:')).toHaveAttribute('type', 'text');
+    expect(screen.queryByRole('checkbox')).toBeNull();
+    expect(screen.queryByLabelText('Save to')).toBeNull();
+    await user.keyboard('pw');
+    await user.type(screen.getByLabelText('Code:'), '123456{Enter}');
+    expect(backend.sent('answerSecret')).toEqual([
+      ['tab-1', ['pw', '123456'], false],
+    ]);
+  });
+
+  it('cancels the login, or drops the question when the connection closes', async () => {
+    const { backend, user } = await asked(password);
+    await user.click(button('Cancel'));
+    expect(backend.sent('answerSecret')).toEqual([['tab-1', null, false]]);
+
+    act(() =>
+      backend.emit({ type: 'secret', tab: 'tab-1', question: password }),
+    );
+    act(() => backend.emit({ type: 'secret', tab: 'tab-1' }));
+    expect(screen.queryByLabelText('Password')).toBeNull();
+    expect(backend.sent('answerSecret')).toHaveLength(1);
   });
 });
