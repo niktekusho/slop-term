@@ -402,7 +402,8 @@ The look decisions came from prototypes on unmerged local branches; they are the
 - A good test drives a seam with inputs the user's actions produce and checks outputs the user would see or files they would find on disk. It never reaches into module internals, so a module can be rewritten without touching its tests.
 - **Seam 1: the back-end IPC contract.** Tests start the back end as the app does and talk to it only with IPC messages. Each test gets:
   - a temp home folder holding `.ssh/config`, `slop-term.conf`, `slop-term.json`, `known_hosts`, `settings.json` and key files;
-  - a local OpenSSH server in Docker, configured per scenario (key login, password login, keyboard-interactive, changed host key, a dropped connection for keepalive tests);
+  - a local OpenSSH server in Docker for real OpenSSH behaviour (key login, password login, changed host key, `docker pause` for dropped packets);
+  - for what the Docker image can't stage (keyboard-interactive questions, keepalive counts, server-side drops, a shell closed with no exit status), the in-process `startFakeSshServer` in `src/backend/ssh-server.ts`, which starts in milliseconds;
   - a fake TPM HTTP server that checks HMAC signatures and the `Content-Type` header and serves fixed entries;
   - `.kdbx` fixture files created with `kdbxweb`;
   - a keychain provider pointed at a test-only service name.

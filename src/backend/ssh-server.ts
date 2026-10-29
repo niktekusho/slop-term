@@ -89,9 +89,9 @@ export async function startSshServer(publicKeys: string[], password?: string) {
 
 /**
  * An in-process SSH server for what OpenSSH in Docker can't show: it counts keepalives and ends connections on demand.
- * Any login works. `users` lists the user name of each login attempt.
+ * Any login works, or with `code` only a keyboard-interactive login that answers it. `users` lists the user name of each login attempt.
  */
-export async function startFakeSshServer() {
+export async function startFakeSshServer({ code }: { code?: string } = {}) {
   const users: string[] = [];
   const connections = new Set<Connection>();
   const shells = new Set<ServerChannel>();
@@ -110,7 +110,13 @@ export async function startFakeSshServer() {
       conn
         .on('authentication', (ctx) => {
           users.push(ctx.username);
-          ctx.accept();
+          if (!code) return ctx.accept();
+          if (ctx.method !== 'keyboard-interactive')
+            return ctx.reject(['keyboard-interactive']);
+          ctx.prompt(
+            [{ prompt: 'Verification code: ', echo: true }],
+            (answers) => (answers[0] === code ? ctx.accept() : ctx.reject()),
+          );
         })
         .on('ready', () => {
           conn.on('session', (accept) => {
@@ -136,7 +142,12 @@ export async function startFakeSshServer() {
     dropAll: () => connections.forEach((c) => c.end()),
     /** Closes each shell channel with no exit status and keeps the connection. */
     closeShells: () => shells.forEach((s) => s.close()),
-    stop: () => new Promise((resolve) => server.close(resolve)),
+    // close() waits for open connections, so it ends them first.
+    stop: () =>
+      new Promise((resolve) => {
+        server.close(resolve);
+        connections.forEach((c) => c.end());
+      }),
   };
 }
 

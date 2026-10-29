@@ -226,6 +226,35 @@ describe('drop and reconnect against an in-process server', () => {
     expect(question(tab)).toHaveLength(1);
   });
 
+  it('asks the keyboard-interactive questions again on a reconnect', async () => {
+    const twoFactor = await startFakeSshServer({ code: '424242' });
+    try {
+      await start(
+        fakeHost().replace(`Port ${fake.port}`, `Port ${twoFactor.port}`),
+      );
+      const codes = (tab: TabId) =>
+        harness.events.filter(
+          (e) => e.type === 'secret' && e.tab === tab && e.question,
+        );
+      const tab = await harness.backend.openSsh('box');
+      await eventually(() => expect(codes(tab)).toHaveLength(1));
+      await harness.backend.answerSecret(tab, ['424242'], false);
+      await connected(tab);
+      twoFactor.dropAll();
+      await eventually(() => expect(dropped(tab)).toHaveLength(1));
+
+      await harness.backend.restart(tab);
+      await eventually(() => expect(codes(tab)).toHaveLength(2));
+      expect(codes(tab)[1]).toMatchObject({
+        question: { prompts: [{ prompt: 'Verification code: ', echo: true }] },
+      });
+      await harness.backend.answerSecret(tab, ['424242'], false);
+      await eventually(() => expect(connections(tab)).toHaveLength(2));
+    } finally {
+      await twoFactor.stop();
+    }
+  });
+
   it('refuses for good to reconnect a Saved session deleted during the drop', async () => {
     await start('', { managed: fakeHost() });
     const tab = await openAndDrop();
