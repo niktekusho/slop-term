@@ -5,11 +5,12 @@ import {
   dialog,
   ipcMain,
   nativeTheme,
+  powerMonitor,
   utilityProcess,
 } from 'electron';
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
-import type { Profiler, Settings } from './shared/ipc.ts';
+import type { Profiler, Request, Settings } from './shared/ipc.ts';
 
 // `start:profile` gives the main process the default inspector port 9229, so the back end takes 9230.
 // Packaged builds skip it: their EnableNodeCliInspectArguments fuse rejects inspector arguments.
@@ -36,6 +37,10 @@ app.whenReady().then(() => {
   });
   backend.on('message', (message) =>
     window.webContents.send('backend', message),
+  );
+  // The renderer numbers its requests from 1, so its client ignores the reply to id 0.
+  powerMonitor.on('resume', () =>
+    backend.postMessage({ id: 0, method: 'wake', args: [] } satisfies Request),
   );
 
   const profiler: Profiler = {

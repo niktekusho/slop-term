@@ -8,7 +8,7 @@ import type {
 } from '../shared/ipc.ts';
 import { detectShells, launchLine } from './shells.ts';
 import { oscScanner } from './osc.ts';
-import { openSshTab, type Typed } from './ssh.ts';
+import { openSshTab, type TabMemory } from './ssh.ts';
 
 type Tab = {
   write(data: string): void;
@@ -16,6 +16,7 @@ type Tab = {
   close(): void;
   answerHostKey?(trust: boolean): void;
   answerSecret?(answers: string[] | null, save: boolean): void;
+  keepalive?(): void;
 };
 
 type Open = (
@@ -37,6 +38,7 @@ export function createSessions(
   | 'restart'
   | 'write'
   | 'resize'
+  | 'wake'
 > {
   const tabs = new Map<TabId, Tab>();
   // A Tab keeps its opener after it exits, so a restart opens the same thing again.
@@ -87,10 +89,10 @@ export function createSessions(
     },
 
     async openSsh(alias) {
-      // Lives as long as the Tab, so a restart reuses what the user typed.
-      const typed: Typed = {};
+      // Lives as long as the Tab, so a reconnect reuses what the user typed and the key they accepted.
+      const memory: TabMemory = { typed: {} };
       return launch((tab, emit, onClose) =>
-        openSshTab(alias, tab, emit, onClose, typed),
+        openSshTab(alias, tab, emit, onClose, memory),
       );
     },
 
@@ -118,6 +120,10 @@ export function createSessions(
 
     async resize(tab, size) {
       tabs.get(tab)?.resize(size);
+    },
+
+    async wake() {
+      for (const tab of tabs.values()) tab.keepalive?.();
     },
   };
 }

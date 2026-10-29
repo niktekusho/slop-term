@@ -39,6 +39,10 @@ function withQuestion<Q>(questions: Map<TabId, Q>, tab: TabId, question?: Q) {
   return next;
 }
 
+// Dim, so the app's own lines stand apart from the shell's output.
+const note = (text: string) => `\r\n\x1b[2m${text}\x1b[22m\r\n`;
+const clock = () => new Date().toTimeString().slice(0, 5);
+
 const darkQuery = () => window.matchMedia('(prefers-color-scheme: dark)');
 const subscribeToOsMode = (onChange: () => void) => {
   const query = darkQuery();
@@ -57,6 +61,9 @@ export function App({
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [active, setActive] = useState<TabId>();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [treeMenu, setTreeMenu] = useState<{ left: number; top: number }>();
+  const [reconnectingAll, setReconnectingAll] = useState(false);
+  const treeMenuRef = useRef<HTMLUListElement>(null);
   const [profiling, setProfiling] = useState(false);
   const [settings, setSettings] = useState<Settings>(defaultSettings);
   const [tree, setTree] = useState(emptyTree);
@@ -93,9 +100,46 @@ export function App({
     [backend, settings.fontSize],
   );
 
-  const exited = useRef(new Set<TabId>());
+  // A halted Tab ignores every key but R, and a `final` one ignores R too.
+  const halted = useRef(new Map<TabId, 'exited' | 'dropped' | 'final'>());
+  const loggedIn = useRef(new Set<TabId>());
+  const reconnecting = useRef(new Set<TabId>());
+  // "Reconnect all" waits on each Tab's connected or dropped event before it starts the next.
+  const settled = useRef(new Map<TabId, () => void>());
   const updateTab = (id: TabId, update: Partial<Tab>) =>
     setTabs((tabs) => tabs.map((t) => (t.id === id ? { ...t, ...update } : t)));
+
+  const restart = useCallback(
+    (id: TabId) => {
+      if (halted.current.get(id) === 'dropped') reconnecting.current.add(id);
+      halted.current.delete(id);
+      backend.restart(id);
+      updateTab(id, { exit: undefined, disconnected: undefined });
+      terms.current.get(id)?.focus();
+    },
+    [backend],
+  );
+
+  const settle = (id: TabId) => {
+    settled.current.get(id)?.();
+    settled.current.delete(id);
+  };
+
+  // A second run alongside the first would put two password prompts up at once.
+  const reconnectAll = async () => {
+    setReconnectingAll(true);
+    const dropped = order.current.filter(
+      (id) => halted.current.get(id) === 'dropped',
+    );
+    for (const id of dropped) {
+      if (halted.current.get(id) !== 'dropped') continue;
+      await new Promise<void>((resolve) => {
+        settled.current.set(id, resolve);
+        restart(id);
+      });
+    }
+    setReconnectingAll(false);
+  };
 
   // The back-end event listener subscribes once, so it reads the latest tree order from a ref.
   const order = useRef<TabId[]>([]);
@@ -105,7 +149,10 @@ export function App({
   const removeTab = useCallback(
     (id: TabId) => {
       backend.close(id);
-      exited.current.delete(id);
+      halted.current.delete(id);
+      loggedIn.current.delete(id);
+      reconnecting.current.delete(id);
+      settle(id);
       terms.current.get(id)?.dispose();
       terms.current.delete(id);
       const i = order.current.indexOf(id);
@@ -125,18 +172,43 @@ export function App({
           const { type: _, tab, ...update } = event;
           return updateTab(tab, update);
         }
-        if (event.type === 'hostKey')
-          return setQuestions((q) =>
-            withQuestion(q, event.tab, event.question),
-          );
-        if (event.type === 'secret')
+        if (event.type === 'hostKey' || event.type === 'secret') {
+          // A Tab that "Reconnect all" started in the background comes forward to ask.
+          if (event.question && settled.current.has(event.tab))
+            setActive(event.tab);
+          if (event.type === 'hostKey')
+            return setQuestions((q) =>
+              withQuestion(q, event.tab, event.question),
+            );
           return setSecrets((q) => withQuestion(q, event.tab, event.question));
+        }
         const term = terms.current.get(event.tab);
         if (!term) return;
         if (event.type === 'output') term.write(event.data);
-        else if (event.code === 0) removeTab(event.tab);
+        else if (event.type === 'connected') {
+          loggedIn.current.add(event.tab);
+          if (reconnecting.current.delete(event.tab))
+            term.write(note(`── reconnected ${clock()} ──`));
+          settle(event.tab);
+        } else if (event.type === 'dropped') {
+          const { tab, reason, final } = event;
+          const offer = 'Press R to reconnect, or click Reconnect';
+          term.write(
+            note(
+              final
+                ? reason
+                : loggedIn.current.delete(tab)
+                  ? `Connection lost (${reason.replace(/\.$/, '')}) at ${clock()}. ${offer}`
+                  : `${reason} ${offer}`,
+            ),
+          );
+          reconnecting.current.delete(tab);
+          halted.current.set(tab, final ? 'final' : 'dropped');
+          updateTab(tab, { disconnected: final ? 'final' : 'retry' });
+          settle(tab);
+        } else if (event.code === 0) removeTab(event.tab);
         else {
-          exited.current.add(event.tab);
+          halted.current.set(event.tab, 'exited');
           term.write(`\r\nprocess exited with code ${event.code}\r\n`);
           updateTab(event.tab, { exit: event.code });
         }
@@ -148,21 +220,17 @@ export function App({
     (id: TabId, source: Tab['source']) => {
       const term = new Terminal(options);
       term.attachCustomKeyEventHandler((e) => !appShortcut(e, mac));
-      // An exited Tab ignores every key but R, which starts it again.
       term.onData((data) => {
-        if (!exited.current.has(id)) backend.write(id, data);
-        else if (data.toLowerCase() === 'r') {
-          exited.current.delete(id);
-          backend.restart(id);
-          updateTab(id, { exit: undefined });
-        }
+        const state = halted.current.get(id);
+        if (!state) backend.write(id, data);
+        else if (state !== 'final' && data.toLowerCase() === 'r') restart(id);
       });
       term.onResize((size) => backend.resize(id, size));
       terms.current.set(id, term);
       setTabs((tabs) => [...tabs, { id, source }]);
       setActive(id);
     },
-    [backend, mac, options],
+    [backend, mac, options, restart],
   );
 
   const open = useCallback(
@@ -256,11 +324,57 @@ export function App({
     settings.fontSize,
   ]);
 
+  useEffect(() => {
+    if (!treeMenu) return;
+    const close = (e: Event) => {
+      if (
+        e instanceof KeyboardEvent
+          ? e.key === 'Escape'
+          : !treeMenuRef.current?.contains(e.target as Node)
+      )
+        setTreeMenu(undefined);
+    };
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('keydown', close);
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('keydown', close);
+    };
+  }, [treeMenu]);
+
   const activeTab = tabs.find((t) => t.id === active);
 
   return (
     <div className="window">
-      <nav className="tree" aria-label="Session tree">
+      <nav
+        className="tree"
+        aria-label="Session tree"
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setTreeMenu({ left: e.clientX, top: e.clientY });
+        }}
+      >
+        {treeMenu && (
+          <ul ref={treeMenuRef} role="menu" className="menu" style={treeMenu}>
+            <li role="none">
+              <button
+                role="menuitem"
+                disabled={
+                  reconnectingAll ||
+                  !tabs.some((t) => t.disconnected === 'retry')
+                }
+                onClick={() => {
+                  setTreeMenu(undefined);
+                  // The menu takes the focus with it when it closes.
+                  if (active) terms.current.get(active)?.focus();
+                  reconnectAll();
+                }}
+              >
+                Reconnect all disconnected Tabs
+              </button>
+            </li>
+          </ul>
+        )}
         <div className="tree-actions">
           <input
             ref={filter}
@@ -311,7 +425,11 @@ export function App({
               {typeof activeTab.source === 'string'
                 ? activeTab.address
                 : 'local shell'}
+              {activeTab.disconnected && ' · disconnected'}
             </span>
+            {activeTab.disconnected === 'retry' && (
+              <button onClick={() => restart(activeTab.id)}>Reconnect</button>
+            )}
           </>
         )}
       </header>

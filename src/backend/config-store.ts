@@ -163,10 +163,7 @@ function credentialOf(entry: Record<string, unknown> | undefined) {
  * Undefined for a Hand-written host, which carries no Sidecar data.
  */
 export function savedSession(alias: string) {
-  const managed = ssh('slop-term.conf');
-  const scan: Scan = { hosts: new Set(), warnings: new Set(), managed };
-  scanFile(managed, scan, 0);
-  if (!scan.hosts.has(alias)) return undefined;
+  if (!hostsIn(ssh('slop-term.conf')).has(alias)) return undefined;
   let raw: RawSidecar = {};
   try {
     raw = parseSidecar(ssh('slop-term.json'));
@@ -175,6 +172,18 @@ export function savedSession(alias: string) {
   }
   const entry = sidecarEntry(raw, alias);
   return { credential: credentialOf(entry), read: JSON.stringify(entry) };
+}
+
+/** Whether `alias` is still a Saved session or a Hand-written host. */
+export function hostExists(alias: string) {
+  return hostsIn(ssh('slop-term.conf'), ssh('config')).has(alias);
+}
+
+function hostsIn(...files: string[]) {
+  const managed = ssh('slop-term.conf');
+  const scan: Scan = { hosts: new Set(), warnings: new Set(), managed };
+  for (const file of files) scanFile(file, scan, 0);
+  return scan.hosts;
 }
 
 /** Re-reads the Sidecar file and stops with a conflict if the session's entry changed since `read`. */

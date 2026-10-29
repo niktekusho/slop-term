@@ -786,6 +786,158 @@ describe('exit rule', () => {
   });
 });
 
+describe('disconnect and reconnect', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 9, 29, 14, 32));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  async function connectedTabs(count = 1) {
+    const app = setup({ tree: { sessions: [{ alias: 'db' }] } });
+    await vi.waitFor(() => expect(row('db')).toBeDefined());
+    for (let i = 1; i <= count; i++) {
+      await app.user.click(
+        screen.getByRole('button', { name: 'Open another Tab of db' }),
+      );
+      await vi.waitFor(() =>
+        expect(app.backend.sent('openSsh')).toHaveLength(i),
+      );
+      act(() => {
+        app.backend.emit({ type: 'tab', tab: `tab-${i}`, address: 'me@db' });
+        app.backend.emit({ type: 'connected', tab: `tab-${i}` });
+      });
+    }
+    return app;
+  }
+  const drop = (
+    backend: FakeBackend,
+    tab = 'tab-1',
+    reason = 'Keepalive timeout',
+  ) => act(() => backend.emit({ type: 'dropped', tab, reason }));
+  const terminal = () => screen.getByRole('main');
+  const tabRows = () => [
+    ...tree().querySelectorAll<HTMLElement>('.tab > .row'),
+  ];
+
+  it('prints the drop, ignores keys but R, and continues below a divider', async () => {
+    const { backend, user } = await connectedTabs();
+    drop(backend);
+    await vi.waitFor(() =>
+      expect(terminal()).toHaveTextContent(
+        'Connection lost (Keepalive timeout) at 14:32. Press R to reconnect, or click Reconnect',
+      ),
+    );
+    expect(screen.getByRole('banner')).toHaveTextContent(
+      'me@db · disconnected',
+    );
+    await user.keyboard('x{Enter}');
+    expect(written(backend)).toBe('');
+    expect(backend.sent('close')).toEqual([]);
+
+    vi.setSystemTime(new Date(2026, 9, 29, 14, 35));
+    await user.keyboard('r');
+    expect(backend.sent('restart')).toEqual([['tab-1']]);
+    act(() => backend.emit({ type: 'connected', tab: 'tab-1' }));
+    await vi.waitFor(() =>
+      expect(terminal()).toHaveTextContent('── reconnected 14:35 ──'),
+    );
+    expect(screen.getByRole('banner')).not.toHaveTextContent('disconnected');
+    await user.keyboard('ls');
+    expect(written(backend)).toBe('ls');
+  });
+
+  it('dims a dropped Tab in the tree with a broken-link icon until it reconnects', async () => {
+    const { backend, user } = await connectedTabs();
+    drop(backend);
+    const [tab] = tabRows();
+    expect(tab).toHaveClass('disconnected');
+    expect(tab.querySelector('.broken-icon')).not.toBeNull();
+
+    await user.keyboard('R');
+    act(() => backend.emit({ type: 'connected', tab: 'tab-1' }));
+    expect(tab).not.toHaveClass('disconnected');
+    expect(tab.querySelector('.broken-icon')).toBeNull();
+  });
+
+  it('reconnects with the button, and offers R again after a failed reconnect', async () => {
+    const { backend, user } = await connectedTabs();
+    drop(backend);
+    await user.click(screen.getByRole('button', { name: 'Reconnect' }));
+    expect(backend.sent('restart')).toEqual([['tab-1']]);
+    expect(screen.queryByRole('button', { name: 'Reconnect' })).toBeNull();
+
+    drop(backend, 'tab-1', 'Not connected: login cancelled.');
+    await vi.waitFor(() =>
+      expect(terminal()).toHaveTextContent(
+        'Not connected: login cancelled. Press R to reconnect, or click Reconnect',
+      ),
+    );
+    await user.keyboard('r');
+    expect(backend.sent('restart')).toHaveLength(2);
+  });
+
+  it('lets a Tab whose Saved session was deleted only close, without asking', async () => {
+    const { backend, user } = await connectedTabs();
+    act(() =>
+      backend.emit({
+        type: 'dropped',
+        tab: 'tab-1',
+        reason: 'This Saved session no longer exists.',
+        final: true,
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(terminal()).toHaveTextContent(
+        'This Saved session no longer exists.',
+      ),
+    );
+    expect(terminal()).not.toHaveTextContent('Press R');
+    expect(screen.queryByRole('button', { name: 'Reconnect' })).toBeNull();
+    await user.keyboard('r');
+    expect(backend.sent('restart')).toEqual([]);
+
+    await user.keyboard('{Control>}{Shift>}w{/Shift}{/Control}');
+    expect(backend.sent('close')).toEqual([['tab-1']]);
+    expect(tabRows()).toEqual([]);
+  });
+
+  it('reconnects all disconnected Tabs one at a time from the tree menu', async () => {
+    const { backend, user } = await connectedTabs(3);
+    drop(backend, 'tab-1');
+    drop(backend, 'tab-2');
+    const reconnectAll = () =>
+      screen.getByRole('menuitem', { name: 'Reconnect all disconnected Tabs' });
+    fireEvent.contextMenu(tree());
+    await user.click(reconnectAll());
+    expect(backend.sent('restart')).toEqual([['tab-1']]);
+    // The active Tab 3 keeps the keys, and a second run can't start.
+    await user.keyboard('ls');
+    expect(written(backend)).toBe('ls');
+    fireEvent.contextMenu(tree());
+    expect(reconnectAll()).toBeDisabled();
+    await user.keyboard('{Escape}');
+
+    // A question on a Tab that reconnects in the background brings it forward.
+    act(() =>
+      backend.emit({
+        type: 'secret',
+        tab: 'tab-1',
+        question: {
+          alias: 'db',
+          title: 'Password for me@db',
+          prompts: [{ prompt: 'Password', echo: false }],
+        },
+      }),
+    );
+    expect(tabRows()[0]).toHaveAttribute('aria-current', 'true');
+    act(() => backend.emit({ type: 'connected', tab: 'tab-1' }));
+    await vi.waitFor(() =>
+      expect(backend.sent('restart')).toEqual([['tab-1'], ['tab-2']]),
+    );
+  });
+});
+
 describe('Tab shortcuts', () => {
   // b-host opens first, but a-host's Tab comes first in the tree.
   async function twoHosts(mac = false) {

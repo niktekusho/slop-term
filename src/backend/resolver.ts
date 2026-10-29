@@ -48,6 +48,9 @@ export async function resolve(
       one('stricthostkeychecking') ?? '',
     ),
     hashKnownHosts: one('hashknownhosts') === 'yes',
+    // `ssh -G` prints 0 for an unset value.
+    keepaliveSeconds: Number(one('serveraliveinterval')) || 15,
+    keepaliveCount: Number(one('serveralivecountmax')) || 3,
     jumpHost: jump('proxyjump') || jump('proxycommand'),
   };
 }

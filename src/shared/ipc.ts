@@ -88,6 +88,8 @@ export interface Backend {
   restart(tab: TabId): Promise<void>;
   write(tab: TabId, data: string): Promise<void>;
   resize(tab: TabId, size: TerminalSize): Promise<void>;
+  /** Sends a keepalive on every SSH Tab, so a connection that died while the computer slept shows as dropped. */
+  wake(): Promise<void>;
   settings(): Promise<Settings>;
   /** Writes the keys into `settings.json`, keeping the others. */
   updateSettings(patch: Partial<Settings>): Promise<void>;
@@ -120,6 +122,10 @@ export type BackendEvent =
   | { type: 'output'; tab: TabId; data: string }
   | ({ type: 'tab'; tab: TabId } & TabUpdate)
   | { type: 'exit'; tab: TabId; code: number }
+  /** An SSH Tab logged in. */
+  | { type: 'connected'; tab: TabId }
+  /** An SSH Tab's connection ended without its shell exiting. `final` means a reconnect can't help: the Tab can only close. */
+  | { type: 'dropped'; tab: TabId; reason: string; final?: true }
   /** For both questions, none means the connection closed and the open question is void. */
   | { type: 'hostKey'; tab: TabId; question?: HostKeyQuestion }
   | { type: 'secret'; tab: TabId; question?: SecretQuestion }
@@ -163,6 +169,7 @@ const methods: { [M in keyof Backend]: true } = {
   restart: true,
   write: true,
   resize: true,
+  wake: true,
   settings: true,
   updateSettings: true,
   openSettings: true,

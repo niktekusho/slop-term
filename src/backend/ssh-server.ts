@@ -3,7 +3,14 @@ import { connect, createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { AgentProtocol, utils, type ParsedKey } from 'ssh2';
+import {
+  AgentProtocol,
+  Server,
+  utils,
+  type Connection,
+  type ParsedKey,
+  type ServerChannel,
+} from 'ssh2';
 
 const run = async (...args: string[]) =>
   (await promisify(execFile)('docker', args)).stdout.trim();
@@ -73,7 +80,63 @@ export async function startSshServer(publicKeys: string[], password?: string) {
     port,
     ed25519: await hostKey('ed25519'),
     rsa: await hostKey('rsa'),
+    // A paused container still has its TCP connections open, but nothing answers on them.
+    pause: () => run('pause', id),
+    unpause: () => run('unpause', id),
     stop: () => run('stop', id),
+  };
+}
+
+/**
+ * An in-process SSH server for what OpenSSH in Docker can't show: it counts keepalives and ends connections on demand.
+ * Any login works. `users` lists the user name of each login attempt.
+ */
+export async function startFakeSshServer() {
+  const users: string[] = [];
+  const connections = new Set<Connection>();
+  const shells = new Set<ServerChannel>();
+  let keepalives = 0;
+  const server = new Server(
+    {
+      hostKeys: [utils.generateKeyPairSync('ed25519').private],
+      // ssh2 answers keepalives itself: only its debug log sees them.
+      debug: (line) => {
+        if (line.includes('GLOBAL_REQUEST (keepalive@openssh.com)'))
+          keepalives++;
+      },
+    },
+    (conn) => {
+      connections.add(conn);
+      conn
+        .on('authentication', (ctx) => {
+          users.push(ctx.username);
+          ctx.accept();
+        })
+        .on('ready', () => {
+          conn.on('session', (accept) => {
+            const session = accept();
+            session.on('pty', (ok) => ok?.());
+            session.on('window-change', (ok) => ok?.());
+            session.on('shell', (ok) => {
+              const shell = ok();
+              shells.add(shell);
+              shell.write('$ ');
+            });
+          });
+        })
+        .on('error', () => {})
+        .on('close', () => connections.delete(conn));
+    },
+  );
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return {
+    port: (server.address() as { port: number }).port,
+    users,
+    keepalives: () => keepalives,
+    dropAll: () => connections.forEach((c) => c.end()),
+    /** Closes each shell channel with no exit status and keeps the connection. */
+    closeShells: () => shells.forEach((s) => s.close()),
+    stop: () => new Promise((resolve) => server.close(resolve)),
   };
 }
 

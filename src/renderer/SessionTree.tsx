@@ -9,6 +9,8 @@ export type Tab = {
   title?: string;
   address?: string;
   exit?: number;
+  /** `retry` until R reconnects it. `final` when a reconnect can't help. */
+  disconnected?: 'retry' | 'final';
 };
 
 type Folder = {
@@ -49,6 +51,10 @@ const folderIcon = icon(
 const exitIcon = icon(
   'exit-icon',
   <path d="M6.5 2.5h-4v11h4M10 5l3 3-3 3M13 8H6" />,
+);
+const brokenIcon = icon(
+  'broken-icon',
+  <path d="M6.5 9.5l-2 2a2 2 0 01-3-3l2-2M9.5 6.5l2-2a2 2 0 013 3l-2 2M5.5 1.5v2M1.5 5.5h2M10.5 14.5v-2M14.5 10.5h-2" />,
 );
 const lock = (
   <span className="lock" title="Hand-written host, read-only">
@@ -161,7 +167,7 @@ function TabRow({
   return (
     <li className="tab">
       <button
-        className="row"
+        className={tab.disconnected ? 'row disconnected' : 'row'}
         style={depth(level)}
         aria-current={active || undefined}
         aria-keyshortcuts={
@@ -174,6 +180,7 @@ function TabRow({
         onClick={() => onSelect(tab.id)}
       >
         {tab.exit !== undefined && exitIcon}
+        {tab.disconnected && brokenIcon}
         <span className="name">{name}</span>
         {/* The space only separates the words in the accessible name: flex layout drops it. */}
         {details.map(

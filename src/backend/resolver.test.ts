@@ -21,6 +21,8 @@ beforeAll(async () => {
       '  HostKeyAlias boxkey',
       '  StrictHostKeyChecking no',
       '  HashKnownHosts yes',
+      '  ServerAliveInterval 60',
+      '  ServerAliveCountMax 5',
       'Host hop',
       '  ProxyJump box',
       'Host piped',
@@ -28,6 +30,7 @@ beforeAll(async () => {
       'Host plain',
       '  ProxyJump none',
       '  StrictHostKeyChecking yes',
+      '  ServerAliveInterval 0',
     ].join('\n'),
   );
 });
@@ -44,8 +47,15 @@ describe('resolver', () => {
       hostKeyAlias: 'boxkey',
       saveUnknownKeys: true,
       hashKnownHosts: true,
+      keepaliveSeconds: 60,
+      keepaliveCount: 5,
       jumpHost: false,
     });
+  });
+
+  it('keeps alive every 15 s for 3 misses when ServerAliveInterval is unset or 0', async () => {
+    const { keepaliveSeconds, keepaliveCount } = await resolve('plain', config);
+    expect([keepaliveSeconds, keepaliveCount]).toEqual([15, 3]);
   });
 
   it('flags ProxyJump and ProxyCommand as a jump host, but not none', async () => {

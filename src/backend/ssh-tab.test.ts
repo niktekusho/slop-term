@@ -15,7 +15,12 @@ import {
 import type { CredentialReference, TabId } from '../shared/ipc.ts';
 import { startBackend } from './harness.ts';
 import { fingerprint, savedKeys } from './known-hosts.ts';
-import { dockerRunning, startAgent, startSshServer } from './ssh-server.ts';
+import {
+  dockerRunning,
+  startAgent,
+  startFakeSshServer,
+  startSshServer,
+} from './ssh-server.ts';
 
 let harness: Awaited<ReturnType<typeof startBackend>>;
 afterEach(() => harness.stop());
@@ -86,6 +91,9 @@ const savedSecret = (entry: string, secret: string) =>
     expect(await keychain(entry).getPassword()).toBe(secret),
   );
 
+const dropped = (tab: TabId) =>
+  harness.events.filter((e) => e.type === 'dropped' && e.tab === tab);
+
 const question = (tab: TabId) =>
   harness.events.flatMap((e) =>
     e.type === 'hostKey' && e.tab === tab ? [e.question] : [],
@@ -108,10 +116,131 @@ it('refuses a host that uses a jump host', async () => {
   await start('Host hop\n  ProxyJump bastion\n');
   const tab = await harness.backend.openSsh('hop');
   await eventually(() =>
-    expect(harness.output(tab)).toContain(
-      "This host uses a jump host. slop-term v1 can't connect to it.",
-    ),
+    expect(dropped(tab)).toEqual([
+      {
+        type: 'dropped',
+        tab,
+        reason: "This host uses a jump host. slop-term v1 can't connect to it.",
+        final: true,
+      },
+    ]),
   );
+});
+
+describe('drop and reconnect against an in-process server', () => {
+  let fake: Awaited<ReturnType<typeof startFakeSshServer>>;
+  beforeAll(async () => {
+    fake = await startFakeSshServer();
+  });
+  afterAll(() => fake.stop());
+
+  const fakeHost = (extra = '') =>
+    [
+      'Host box',
+      '  HostName 127.0.0.1',
+      `  Port ${fake.port}`,
+      '  User test',
+      '  IdentityFile ~/.ssh/id_test',
+      '  UserKnownHostsFile /dev/null',
+      '  StrictHostKeyChecking no',
+      extra,
+    ].join('\n');
+  const connected = (tab: TabId) =>
+    eventually(() =>
+      expect(harness.events).toContainEqual({ type: 'connected', tab }),
+    );
+
+  it('reports a closed connection as a drop at once, not as an exit', async () => {
+    await start(fakeHost());
+    const tab = await harness.backend.openSsh('box');
+    await connected(tab);
+    fake.dropAll();
+    await eventually(() =>
+      expect(dropped(tab)).toEqual([
+        { type: 'dropped', tab, reason: 'Connection closed.' },
+      ]),
+    );
+    expect(harness.events.some((e) => e.type === 'exit')).toBe(false);
+  });
+
+  it('reports a shell that closes with no exit status as a drop', async () => {
+    await start(fakeHost());
+    const tab = await harness.backend.openSsh('box');
+    await eventually(() => expect(harness.output(tab)).toContain('$ '));
+    fake.closeShells();
+    await eventually(() =>
+      expect(dropped(tab)).toEqual([
+        { type: 'dropped', tab, reason: 'Connection closed.' },
+      ]),
+    );
+    expect(harness.events.some((e) => e.type === 'exit')).toBe(false);
+  });
+
+  it('sends one keepalive on every SSH Tab when the computer wakes', async () => {
+    await start(fakeHost('  ServerAliveInterval 600'));
+    const tabs = [
+      await harness.backend.openSsh('box'),
+      await harness.backend.openSsh('box'),
+    ];
+    for (const tab of tabs) await connected(tab);
+    const before = fake.keepalives();
+    await harness.backend.wake();
+    await eventually(() => expect(fake.keepalives()).toBe(before + 2));
+  });
+
+  const managedConfig = () => path.join(harness.home, '.ssh', 'slop-term.conf');
+  async function openAndDrop() {
+    const tab = await harness.backend.openSsh('box');
+    await connected(tab);
+    fake.dropAll();
+    await eventually(() => expect(dropped(tab)).toHaveLength(1));
+    return tab;
+  }
+  const connections = (tab: TabId) =>
+    harness.events.filter((e) => e.type === 'connected' && e.tab === tab);
+
+  it('reconnects with the values of a Saved session edited during the drop', async () => {
+    await start('', { managed: fakeHost() });
+    const tab = await openAndDrop();
+    await writeFile(managedConfig(), fakeHost().replace('test', 'alice'));
+    await harness.backend.restart(tab);
+    await eventually(() => expect(connections(tab)).toHaveLength(2));
+    expect(harness.events).toContainEqual({
+      type: 'tab',
+      tab,
+      address: 'alice@127.0.0.1',
+    });
+    expect(fake.users.at(-1)).toBe('alice');
+  });
+
+  it('reconnects without asking again about the host key the Tab accepted', async () => {
+    await start(fakeHost().replace('StrictHostKeyChecking no', ''));
+    const tab = await harness.backend.openSsh('box');
+    await eventually(() => expect(question(tab)).toHaveLength(1));
+    await harness.backend.answerHostKey(tab, true);
+    await connected(tab);
+    fake.dropAll();
+    await eventually(() => expect(dropped(tab)).toHaveLength(1));
+    await harness.backend.restart(tab);
+    await eventually(() => expect(connections(tab)).toHaveLength(2));
+    expect(question(tab)).toHaveLength(1);
+  });
+
+  it('refuses for good to reconnect a Saved session deleted during the drop', async () => {
+    await start('', { managed: fakeHost() });
+    const tab = await openAndDrop();
+    await writeFile(managedConfig(), '');
+    await harness.backend.restart(tab);
+    await eventually(() =>
+      expect(dropped(tab).at(-1)).toEqual({
+        type: 'dropped',
+        tab,
+        reason: 'This Saved session no longer exists.',
+        final: true,
+      }),
+    );
+    expect(connections(tab)).toHaveLength(1);
+  });
 });
 
 const docker = await dockerRunning();
@@ -148,6 +277,29 @@ describe.skipIf(!docker)('SSH Tab against OpenSSH in Docker', () => {
     expect(await readFile(knownHosts(), 'utf8')).toBe(
       `${name()} ssh-ed25519 ${server.ed25519}\n`,
     );
+  });
+
+  // ssh2 and OpenSSH both give up on the keepalive after the last allowed miss: interval × (count + 1).
+  it('drops a Tab whose server stops answering after ServerAliveCountMax missed keepalives', async () => {
+    await start(
+      host(
+        '  StrictHostKeyChecking accept-new\n  ServerAliveInterval 1\n  ServerAliveCountMax 2',
+      ),
+    );
+    const tab = await harness.backend.openSsh('box');
+    await loggedIn(tab);
+    await server.pause();
+    try {
+      const paused = Date.now();
+      await eventually(() =>
+        expect(dropped(tab)).toEqual([
+          { type: 'dropped', tab, reason: 'Keepalive timeout' },
+        ]),
+      );
+      expect(Date.now() - paused).toBeLessThan(5_000);
+    } finally {
+      await server.unpause();
+    }
   });
 
   it('reports user@host, the OSC 7 folder and the exit code', async () => {
@@ -214,9 +366,13 @@ describe.skipIf(!docker)('SSH Tab against OpenSSH in Docker', () => {
     await eventually(() => expect(question(tab)).toHaveLength(1));
     await harness.backend.answerHostKey(tab, false);
     await eventually(() =>
-      expect(harness.output(tab)).toContain(
-        'Not connected: the host key was not trusted.',
-      ),
+      expect(dropped(tab)).toEqual([
+        {
+          type: 'dropped',
+          tab,
+          reason: 'Not connected: the host key was not trusted.',
+        },
+      ]),
     );
     expect(existsSync(knownHosts())).toBe(false);
   });
@@ -485,9 +641,9 @@ describe.skipIf(!docker)('SSH Tab against OpenSSH in Docker', () => {
       await eventually(() => expect(asked(tab)).toHaveLength(1));
       await harness.backend.answerSecret(tab, null, false);
       await eventually(() =>
-        expect(harness.output(tab)).toContain(
-          'Not connected: login cancelled.',
-        ),
+        expect(dropped(tab)).toEqual([
+          { type: 'dropped', tab, reason: 'Not connected: login cancelled.' },
+        ]),
       );
     });
   });

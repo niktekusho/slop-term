@@ -251,6 +251,20 @@ body,
   color: var(--faint);
 }
 
+/* The icon stays at full strength so the red reads at a glance. */
+.row.disconnected > :not(.broken-icon) {
+  opacity: 0.6;
+}
+
+.broken-icon {
+  color: var(--danger);
+}
+
+.tree > .menu {
+  position: fixed;
+  right: auto;
+}
+
 .keycap {
   position: absolute;
   top: 4px;

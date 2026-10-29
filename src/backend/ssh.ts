@@ -21,7 +21,7 @@ import type {
   TabId,
   TerminalSize,
 } from '../shared/ipc.ts';
-import { savedSession, saveCredential } from './config-store.ts';
+import { hostExists, savedSession, saveCredential } from './config-store.ts';
 import { newKeychainEntry, provider } from './credentials.ts';
 import {
   fingerprint,
@@ -38,9 +38,20 @@ export type SshTab = {
   answerHostKey(trust: boolean): void;
   answerSecret(answers: string[] | null, save: boolean): void;
   close(): void;
-  /** The key this Tab accepted, in base64, for its later connections. */
+  keepalive(): void;
+};
+
+/** What a Tab remembers across its connections. */
+export type TabMemory = {
+  typed: Typed;
+  /** The host key the Tab accepted, in base64. */
   hostKey?: string;
 };
+
+// ssh2 has no public way to send one keepalive now. This is the request its own keepalive timer sends.
+// The server's reply takes the next callback from the same queue.
+// ponytail: private ssh2 fields, pinned at 1.17.0; check them on an ssh2 upgrade.
+type Internals = { _callbacks: (() => void)[]; _protocol: { ping(): void } };
 
 const jumpHostMessage =
   "This host uses a jump host. slop-term v1 can't connect to it.";
@@ -82,8 +93,9 @@ export function openSshTab(
   tab: TabId,
   emit: (event: BackendEvent) => void,
   onClose: () => void,
-  typed: Typed,
+  memory: TabMemory,
 ): SshTab {
+  const { typed } = memory;
   const client = new Client();
   let size: TerminalSize = { cols: 80, rows: 24 };
   let channel: ClientChannel | undefined;
@@ -93,7 +105,8 @@ export function openSshTab(
 
   const print = (text: string) =>
     emit({ type: 'output', tab, data: `\r\n${text}\r\n` });
-  const close = (message?: string) => {
+  // No reason means the user closed the Tab or its shell exited.
+  const close = (reason?: string, final?: true) => {
     if (closed) return;
     closed = true;
     if (answer) {
@@ -106,9 +119,9 @@ export function openSshTab(
       reply = undefined;
       emit({ type: 'secret', tab });
     }
-    if (message) print(message);
     client.end();
     onClose();
+    if (reason) emit({ type: 'dropped', tab, reason, ...(final && { final }) });
   };
   const ask = (question: HostKeyQuestion) =>
     new Promise<boolean>((resolve) => {
@@ -137,11 +150,20 @@ export function openSshTab(
       reply = undefined;
     },
     close: () => close(),
+    keepalive() {
+      if (!channel || closed) return;
+      const internals = client as unknown as Internals;
+      internals._callbacks.push(() => {});
+      internals._protocol.ping();
+    },
   };
 
   async function connect() {
+    // Closing before the first await would call onClose before openSshTab returns the Tab.
     const r = await resolve(alias);
-    if (r.jumpHost) return close(jumpHostMessage);
+    if (!hostExists(alias))
+      return close('This Saved session no longer exists.', true);
+    if (r.jumpHost) return close(jumpHostMessage, true);
     emit({ type: 'tab', tab, address: `${r.user}@${r.hostname}` });
 
     const name = knownHostName(r.hostKeyAlias ?? r.hostname, r.port);
@@ -174,7 +196,8 @@ export function openSshTab(
         fingerprint: fingerprint(key),
       };
       const sameType = saved.filter((k) => k.type === type);
-      if (sameType.some((k) => k.key === key)) return true;
+      if (key === memory.hostKey || sameType.some((k) => k.key === key))
+        return true;
       // A changed key blocks even with `StrictHostKeyChecking no`.
       const old = sameType[0];
       if (old) {
@@ -375,6 +398,8 @@ export function openSshTab(
         );
       })
       .on('ready', () => {
+        // Comes first, so the UI's reconnect divider sits above the save messages.
+        emit({ type: 'connected', tab });
         // A second keyboard-interactive round means the first prompt wasn't the whole login.
         if (toSave && rounds <= 1) void saveSecret(toSave);
         else if (toSave)
@@ -384,7 +409,7 @@ export function openSshTab(
           channel = stream;
           const out = new StringDecoder('utf8');
           const errOut = new StringDecoder('utf8');
-          let code = 0;
+          let code: number | undefined;
           stream.on('data', (d: Buffer) =>
             emit({ type: 'output', tab, data: out.write(d) }),
           );
@@ -392,7 +417,11 @@ export function openSshTab(
             emit({ type: 'output', tab, data: errOut.write(d) }),
           );
           stream.on('exit', (c: number | null) => (code = c ?? 1));
+          // A dropped connection closes the client before its channels: that close is no exit.
+          // A channel that closes with no exit status, as when sshd shuts down, is a drop too.
           stream.on('close', () => {
+            if (closed) return;
+            if (code === undefined) return close('Connection closed.');
             close();
             emit({ type: 'exit', tab, code });
           });
@@ -412,6 +441,8 @@ export function openSshTab(
         // The handshake waits on the host key question for as long as the user reads it.
         // ponytail: no handshake timeout; sshd's LoginGraceTime still drops a stalled login.
         readyTimeout: 0,
+        keepaliveInterval: r.keepaliveSeconds * 1000,
+        keepaliveCountMax: r.keepaliveCount,
         algorithms: savedTypes.length
           ? {
               serverHostKey: {
@@ -424,7 +455,7 @@ export function openSshTab(
           trusted(blob).then(
             (ok) => {
               declined = !ok;
-              if (ok) sshTab.hostKey = blob.toString('base64');
+              if (ok) memory.hostKey = blob.toString('base64');
               verify(ok);
             },
             (e: Error) => close(e.message),

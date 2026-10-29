@@ -82,6 +82,10 @@ export class FakeBackend implements BackendClient {
     this.requests.push({ method: 'resize', args });
   }
 
+  async wake() {
+    this.requests.push({ method: 'wake', args: [] });
+  }
+
   async settings() {
     this.requests.push({ method: 'settings', args: [] });
     return this.savedSettings;
