@@ -6,7 +6,7 @@
 
 **Blocked by:** 05 — SSH Tab with key login and host key checks; 10 — SSH Saved session dialog
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Test sits on the left of the dialog footer, for SSH sessions only.
 - [ ] It runs `ssh -G <alias>` with each field and option row passed as `-o`, then connects with the host key checks, logs in with the form's Credential reference or a test-only password, opens SFTP and disconnects.
