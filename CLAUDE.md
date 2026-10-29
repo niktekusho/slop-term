@@ -1,0 +1,9 @@
+# slop-term
+
+Tickets: `.scratch/slop-term-v1-build/issues/NN-*.md`. Set `**Status:** done` by hand when a ticket ships. Spec: `.scratch/slop-term-v1/spec.md`. Design decisions: `.scratch/slop-term-v1/issues/`. Retros: `.scratch/retro-ticket-NN.md`.
+
+Test seams are fixed in the spec's Testing Decisions: write the first failing test before the first `src/` edit.
+
+Review uncommitted work with `git diff HEAD`. A `<fixed-point>...HEAD` diff is empty until the commit.
+
+Run `git config core.hooksPath .githooks` once per clone to enable the pre-commit check.

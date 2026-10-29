@@ -1,5 +1,8 @@
 # Undo global ignore for now
 !.scratch
+!.claude
+!CLAUDE.md
+.claude/settings.local.json
 node_modules/
 .vite/
 out/
