@@ -36,6 +36,20 @@ export class FakeBackend implements BackendClient {
   saveError: string | undefined;
   private listeners = new Set<(event: BackendEvent) => void>();
   private nextTab = 1;
+  private holds = new Map<keyof Backend, Promise<void>>();
+
+  /** Makes the next call of `method` wait until the returned function runs. */
+  hold(method: keyof Backend) {
+    let release!: () => void;
+    this.holds.set(method, new Promise<void>((r) => (release = r)));
+    return release;
+  }
+
+  private async gate(method: keyof Backend) {
+    const held = this.holds.get(method);
+    this.holds.delete(method);
+    await held;
+  }
 
   onEvent(listener: (event: BackendEvent) => void) {
     this.listeners.add(listener);
@@ -119,6 +133,7 @@ export class FakeBackend implements BackendClient {
 
   async getSession(alias: string) {
     this.requests.push({ method: 'getSession', args: [alias] });
+    await this.gate('getSession');
     const session = this.savedSessions[alias];
     if (!session) throw new Error(`${alias} is not in slop-term.conf.`);
     return session;
@@ -127,6 +142,7 @@ export class FakeBackend implements BackendClient {
   /** Puts the Saved session in the tree, as the real back end's reload would. */
   async saveSession(...args: Parameters<Backend['saveSession']>) {
     this.requests.push({ method: 'saveSession', args });
+    await this.gate('saveSession');
     if (this.saveError) throw new Error(this.saveError);
     const [{ alias, folder, credential }, edit] = args;
     const others = this.tree.sessions.filter((s) => s.alias !== edit?.alias);
@@ -153,6 +169,7 @@ export class FakeBackend implements BackendClient {
 
   async testSession(...args: Parameters<Backend['testSession']>) {
     this.requests.push({ method: 'testSession', args });
+    await this.gate('testSession');
     return `test-${this.nextTab++}`;
   }
 

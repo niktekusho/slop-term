@@ -596,6 +596,19 @@ describe('Test', () => {
     await user.click(within(dialog()).getByRole('button', { name: 'Cancel' }));
     expect(backend.sent('close')).toEqual([['test-1']]);
   });
+
+  it('stops a Test whose id arrives after the dialog closed', async () => {
+    const { backend, user } = await setup([{ alias: 'db' }]);
+    const release = backend.hold('testSession');
+    await openNew(user);
+    await user.type(field('Alias'), 'web');
+    await user.click(within(dialog()).getByRole('button', { name: 'Test' }));
+    await user.click(within(dialog()).getByRole('button', { name: 'Cancel' }));
+    expect(backend.sent('close')).toEqual([]);
+
+    release();
+    await vi.waitFor(() => expect(backend.sent('close')).toEqual([['test-1']]));
+  });
 });
 
 describe('Delete', () => {

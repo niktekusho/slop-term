@@ -782,16 +782,6 @@ describe.skipIf(!docker)('SSH Tab against OpenSSH in Docker', () => {
       ).toBe(false);
     });
 
-    /** The checklist with `failed` steps passed, the next one failed with `reason`, and the rest waiting. */
-    const failedAt = (failed: number, reason: unknown) =>
-      labels().map((label, i) =>
-        i < failed
-          ? { label, state: 'passed' }
-          : i === failed
-            ? { label, state: 'failed', reason }
-            : { label, state: 'waiting' },
-      );
-
     it('fails at resolved with the jump-host message', async () => {
       await start('');
       const test = await harness.backend.testSession(
@@ -817,12 +807,17 @@ describe.skipIf(!docker)('SSH Tab against OpenSSH in Docker', () => {
       await start('');
       const test = await harness.backend.testSession(form({ port: '1' }));
       await eventually(() =>
-        expect(checklist(test)).toEqual(
-          failedAt(1, expect.stringContaining('ECONNREFUSED')).map((s) => ({
-            ...s,
-            label: s.label.replace(String(server.port), '1'),
-          })),
-        ),
+        expect(checklist(test)).toEqual([
+          { label: 'resolved', state: 'passed' },
+          {
+            label: 'reached 127.0.0.1:1',
+            state: 'failed',
+            reason: expect.stringContaining('ECONNREFUSED'),
+          },
+          { label: 'host key', state: 'waiting' },
+          { label: 'logged in as test', state: 'waiting' },
+          { label: 'SFTP', state: 'waiting' },
+        ]),
       );
     });
 
@@ -832,9 +827,17 @@ describe.skipIf(!docker)('SSH Tab against OpenSSH in Docker', () => {
       await eventually(() => expect(question(test)).toHaveLength(1));
       await harness.backend.answerHostKey(test, false);
       await eventually(() =>
-        expect(checklist(test)).toEqual(
-          failedAt(2, 'Not connected: the host key was not trusted.'),
-        ),
+        expect(checklist(test)).toEqual([
+          { label: 'resolved', state: 'passed' },
+          { label: `reached 127.0.0.1:${server.port}`, state: 'passed' },
+          {
+            label: 'host key',
+            state: 'failed',
+            reason: 'Not connected: the host key was not trusted.',
+          },
+          { label: 'logged in as test', state: 'waiting' },
+          { label: 'SFTP', state: 'waiting' },
+        ]),
       );
       expect(existsSync(knownHosts())).toBe(false);
     });
@@ -915,9 +918,17 @@ describe.skipIf(!docker)('SSH Tab against OpenSSH in Docker', () => {
         await eventually(() => expect(asked(test)).toHaveLength(1));
         await harness.backend.answerSecret(test, null, false);
         await eventually(() =>
-          expect(checklist(test)).toEqual(
-            failedAt(3, 'Not connected: login cancelled.'),
-          ),
+          expect(checklist(test)).toEqual([
+            { label: 'resolved', state: 'passed' },
+            { label: `reached 127.0.0.1:${server.port}`, state: 'passed' },
+            { label: 'host key', state: 'passed' },
+            {
+              label: 'logged in as test',
+              state: 'failed',
+              reason: 'Not connected: login cancelled.',
+            },
+            { label: 'SFTP', state: 'waiting' },
+          ]),
         );
       });
     });
