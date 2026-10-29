@@ -69,4 +69,5 @@ Reached: [Spec: slop-term v1](spec.md).
 - Smart Ctrl+C, which copies when text is selected and otherwise sends Ctrl+C ([Keyboard shortcuts, themes and fonts](issues/16-shortcuts-themes-fonts.md)): a stray selection would swallow an interrupt. The user wants it as an option after v1.
 - Syncing KeePass groups with the app's folders ([KeePass provider details](issues/20-keepass-provider-details.md)): an idea for after v1. In v1 the save picker preselects the group whose name matches the folder.
 - KeePass key files and YubiKey ([KeePass provider details](issues/20-keepass-provider-details.md)): the user unlocks with a master password only. `kdbxweb` handles key files, so they can come later.
+- LLM integration: planned after v1 as its own effort, in [Map: slop-term LLM integration](../slop-term-llm/map.md).
 - Setting up key login, meaning creating a key and adding it to the remote `authorized_keys` ([Saving passwords typed for `ssh <host>`](issues/22-save-typed-ssh-passwords.md)): the user wants it after v1. Shared accounts would need a per-host way to skip it.
