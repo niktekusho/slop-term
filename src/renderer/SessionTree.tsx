@@ -212,6 +212,8 @@ export function SessionTree({
   mac,
   onSelectTab,
   onOpenHost,
+  onSession,
+  onSelectFolder,
   query,
 }: {
   model: Model;
@@ -220,6 +222,13 @@ export function SessionTree({
   mac: boolean;
   onSelectTab(id: TabId): void;
   onOpenHost(alias: string): void;
+  /** F2, Delete or a right-click at `menu` on a Saved session's row. */
+  onSession(
+    alias: string,
+    action: 'edit' | 'delete' | { left: number; top: number },
+  ): void;
+  /** The folder of the row that last had focus, where "New" creates. */
+  onSelectFolder(folder: string): void;
   query: string;
 }) {
   const [collapsed, setCollapsed] = useState(new Set<string>());
@@ -253,18 +262,35 @@ export function SessionTree({
     />
   );
 
-  const sessionRow = (alias: string, level: number, handWritten = false) => (
+  // `folder` is undefined for a Hand-written host, which is read-only: only Enter works on it.
+  const sessionRow = (
+    alias: string,
+    level: number,
+    folder: string | undefined,
+  ) => (
     <li key={alias} className="session">
       <button
         className="row"
         style={depth(level)}
+        onFocus={() => folder !== undefined && onSelectFolder(folder)}
         onDoubleClick={() => onOpenHost(alias)}
-        onKeyDown={(e) => e.key === 'Enter' && onOpenHost(alias)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') onOpenHost(alias);
+          else if (folder === undefined) return;
+          else if (e.key === 'F2') onSession(alias, 'edit');
+          else if (e.key === 'Delete') onSession(alias, 'delete');
+        }}
+        onContextMenu={(e) => {
+          if (folder === undefined) return;
+          e.preventDefault();
+          e.stopPropagation();
+          onSession(alias, { left: e.clientX, top: e.clientY });
+        }}
       >
         <span className="slot" />
         <span className="edge ssh" />
         <span className="name">{alias}</span>
-        {handWritten && lock}
+        {folder === undefined && lock}
       </button>
       <button
         className="add"
@@ -292,6 +318,7 @@ export function SessionTree({
               className="row"
               style={depth(level)}
               aria-expanded={open}
+              onFocus={() => onSelectFolder(f.path)}
               onClick={() => query || toggle(f.path)}
             >
               {chevron}
@@ -301,7 +328,9 @@ export function SessionTree({
             {open && (
               <ul>
                 {folderRows(f.folders, level + 1)}
-                {f.sessions.map((alias) => sessionRow(alias, level + 1))}
+                {f.sessions.map((alias) =>
+                  sessionRow(alias, level + 1, f.path),
+                )}
               </ul>
             )}
           </li>
@@ -322,12 +351,12 @@ export function SessionTree({
           </h2>
           <ul>
             {shownTabs.map((tab) => tabRow(tab, 0, true))}
-            {handWritten.map((alias) => sessionRow(alias, 0, true))}
+            {handWritten.map((alias) => sessionRow(alias, 0, undefined))}
           </ul>
         </section>
       )}
       <ul>
-        {root.sessions.map((alias) => sessionRow(alias, 0))}
+        {root.sessions.map((alias) => sessionRow(alias, 0, ''))}
         {folderRows(root.folders, 0)}
       </ul>
     </>

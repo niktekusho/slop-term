@@ -30,6 +30,13 @@ const keychain: CredentialProvider = {
   },
 };
 
+/** A password belongs to an account: its new keychain entry is named `user@host`, with `-port` when the port isn't 22. */
+export const accountName = (r: {
+  user: string;
+  hostname: string;
+  port: number;
+}) => `${r.user}@${r.hostname}${r.port === 22 ? '' : `-${r.port}`}`;
+
 /**
  * A keychain entry id from `name` that no entry on this machine uses yet, adding `-2`, `-3` and so on.
  * Keychains differ in which characters they accept, so the id keeps only letters, digits and `._@-`.

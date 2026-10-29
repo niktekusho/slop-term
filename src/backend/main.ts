@@ -19,11 +19,12 @@ const emit = (event: BackendEvent) => send({ event });
 // Both hosts pass the app data folder as the last argument; they put different things before it.
 const dataDir = process.argv.at(-1)!;
 
+const { renamed, ...sessions } = createSessions(emit);
 const handle = serve(
   {
-    ...createSessions(emit),
+    ...sessions,
     ...createSettings(dataDir, emit),
-    ...createConfigStore(emit),
+    ...createConfigStore(emit, renamed),
   },
   send,
 );

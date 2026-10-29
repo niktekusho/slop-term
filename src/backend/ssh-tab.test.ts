@@ -255,6 +255,34 @@ describe('drop and reconnect against an in-process server', () => {
     }
   });
 
+  it('leaves a connected Tab alone when its Saved session is edited', async () => {
+    await start('', { managed: fakeHost() });
+    const tab = await harness.backend.openSsh('box');
+    await connected(tab);
+    const { read, ...form } = await harness.backend.getSession('box');
+    await harness.backend.saveSession(
+      { ...form, user: 'alice' },
+      { alias: 'box', read },
+    );
+    const before = fake.keepalives();
+    await harness.backend.wake();
+    await eventually(() => expect(fake.keepalives()).toBe(before + 1));
+    expect(dropped(tab)).toEqual([]);
+    expect(connections(tab)).toHaveLength(1);
+  });
+
+  it('reconnects under the new alias after a rename in the dialog', async () => {
+    await start('', { managed: fakeHost() });
+    const tab = await openAndDrop();
+    const { read, ...form } = await harness.backend.getSession('box');
+    await harness.backend.saveSession(
+      { ...form, alias: 'box-prod' },
+      { alias: 'box', read },
+    );
+    await harness.backend.restart(tab);
+    await eventually(() => expect(connections(tab)).toHaveLength(2));
+  });
+
   it('refuses for good to reconnect a Saved session deleted during the drop', async () => {
     await start('', { managed: fakeHost() });
     const tab = await openAndDrop();

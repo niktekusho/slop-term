@@ -19,7 +19,11 @@ export type SessionTree = {
   /** Folder paths from the Sidecar file, segments joined by `/`. */
   folders: string[];
   /** Managed hosts. One without a Sidecar folder sits at the tree root. */
-  sessions: { alias: string; folder?: string }[];
+  sessions: {
+    alias: string;
+    folder?: string;
+    credential?: CredentialReference;
+  }[];
   handWritten: string[];
   warnings: string[];
 };
@@ -56,6 +60,36 @@ export type CredentialReference = {
   provider: string;
   entry: string;
   kind: 'password' | 'passphrase';
+};
+
+/** An SSH Saved session as the dialog edits it. An empty string means unset; `folder` '' is the top level. */
+export type SessionForm = {
+  alias: string;
+  folder: string;
+  hostname: string;
+  port: string;
+  user: string;
+  identityFile: string;
+  /** Every other line of the host block, as `Key value`. */
+  options: string[];
+  credential?: CredentialReference;
+};
+
+/** `read` is the session as read now, which a save or delete checks for conflicts. */
+export type SavedSession = SessionForm & { read: string };
+
+/** `set` saves a new secret to the keychain and points the session at it. `drop` deletes an entry the form removed, unless another session uses it. */
+export type SecretChange = {
+  set?: { kind: CredentialReference['kind']; secret: string };
+  drop?: CredentialReference;
+};
+
+/** What `ssh -G` uses for each empty part of the command line. */
+export type SessionDefaults = {
+  hostname: string;
+  port: string;
+  user: string;
+  identityFile: string;
 };
 
 /** A login question shown inside the Tab. A prompt with `echo` false hides what the user types. */
@@ -95,6 +129,29 @@ export interface Backend {
   updateSettings(patch: Partial<Settings>): Promise<void>;
   openSettings(): Promise<void>;
   getTree(): Promise<SessionTree>;
+  getSession(alias: string): Promise<SavedSession>;
+  /**
+   * Creates the session, or replaces `edit.alias` after checking it is unchanged since `edit.read`.
+   * Writes the secret first, then each file once, and resolves to the new tree.
+   */
+  saveSession(
+    form: SessionForm,
+    edit?: { alias: string; read: string },
+    secret?: SecretChange,
+  ): Promise<SessionTree>;
+  /** `deleteSecret` deletes the session's saved secret unless another session uses it. */
+  deleteSession(
+    alias: string,
+    read: string,
+    deleteSecret: boolean,
+  ): Promise<SessionTree>;
+  sessionDefaults(alias: string, options: string[]): Promise<SessionDefaults>;
+}
+
+// Served by the main process: native dialogs exist only there.
+export interface Dialogs {
+  /** Resolves to the picked file, as `~/…` when it is in the home folder. */
+  pickKeyFile(): Promise<string | undefined>;
 }
 
 // Served by the main process, not the back end: these Electron APIs exist only there.
@@ -143,7 +200,11 @@ export interface WindowControls {
   setTheme(theme: Settings['theme']): void;
 }
 
-export type BackendClient = Backend & Profiler & WindowControls & Events;
+export type BackendClient = Backend &
+  Profiler &
+  Dialogs &
+  WindowControls &
+  Events;
 
 export type Request = {
   [M in keyof Backend]: {
@@ -174,6 +235,10 @@ const methods: { [M in keyof Backend]: true } = {
   updateSettings: true,
   openSettings: true,
   getTree: true,
+  getSession: true,
+  saveSession: true,
+  deleteSession: true,
+  sessionDefaults: true,
 };
 
 export function serve(backend: Backend, send: (message: Message) => void) {

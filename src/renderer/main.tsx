@@ -9,6 +9,7 @@ import { App } from './App.tsx';
 const backend = {
   ...createClient(window.slop.send, window.slop.onMessage),
   ...window.slop.profiler,
+  ...window.slop.dialogs,
   ...window.slop.window,
 };
 

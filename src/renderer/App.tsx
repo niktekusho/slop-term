@@ -11,6 +11,7 @@ import {
   defaultSettings,
   emptyTree,
   type BackendClient,
+  type CredentialReference,
   type HostKeyQuestion,
   type SecretQuestion,
   type Settings,
@@ -29,6 +30,13 @@ import {
 import { terminalOptions } from './look.ts';
 import { HostKeyPrompt } from './HostKeyPrompt.tsx';
 import { SecretPrompt } from './SecretPrompt.tsx';
+import {
+  DeleteSession,
+  freeAlias,
+  newForm,
+  SessionDialog,
+  type DialogStart,
+} from './SessionDialog.tsx';
 import { appShortcut, terminalShortcut } from './shortcuts.ts';
 
 /** No question removes the Tab's entry. */
@@ -61,7 +69,22 @@ export function App({
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [active, setActive] = useState<TabId>();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [treeMenu, setTreeMenu] = useState<{ left: number; top: number }>();
+  const [newMenuOpen, setNewMenuOpen] = useState(false);
+  // With an alias, the menu of that Saved session; without, the tree's own.
+  const [treeMenu, setTreeMenu] = useState<{
+    left: number;
+    top: number;
+    alias?: string;
+  }>();
+  const [selectedFolder, setSelectedFolder] = useState('');
+  const [dialog, setDialog] = useState<DialogStart>();
+  const [deleting, setDeleting] = useState<{
+    alias: string;
+    read: string;
+    credential?: CredentialReference;
+  }>();
+  const [notice, setNotice] = useState<string>();
+  const modal = !!dialog || !!deleting;
   const [reconnectingAll, setReconnectingAll] = useState(false);
   const treeMenuRef = useRef<HTMLUListElement>(null);
   const [profiling, setProfiling] = useState(false);
@@ -243,6 +266,75 @@ export function App({
     [backend, addTab],
   );
 
+  const taken = () => [
+    ...tree.sessions.map((s) => s.alias),
+    ...tree.handWritten,
+  ];
+  const fail = (e: Error) => setNotice(e.message);
+  const openDialog = (start: DialogStart) => {
+    setNotice(undefined);
+    setDialog(start);
+  };
+  const editSession = (alias: string) =>
+    backend
+      .getSession(alias)
+      .then(({ read, ...form }) => openDialog({ form, edit: { alias, read } }))
+      .catch(fail);
+  const duplicateSession = (alias: string) =>
+    backend
+      .getSession(alias)
+      .then((session) => {
+        const { read: _, ...form } = session;
+        openDialog({ form: { ...form, alias: freeAlias(alias, taken()) } });
+      })
+      .catch(fail);
+  const askDelete = (alias: string) =>
+    backend
+      .getSession(alias)
+      .then(({ read, credential }) => {
+        setNotice(undefined);
+        setDeleting({ alias, read, credential });
+      })
+      .catch(fail);
+
+  // The key shows on the right; the accessible name stays the action alone.
+  const menuItem = (
+    label: string,
+    run: () => void,
+    keys?: { aria: string; shown: string },
+    className?: string,
+  ) => (
+    <li role="none" key={label}>
+      <button
+        role="menuitem"
+        className={className}
+        aria-keyshortcuts={keys?.aria}
+        onClick={() => {
+          setTreeMenu(undefined);
+          run();
+        }}
+      >
+        {label}
+        {keys && <kbd aria-hidden="true">{keys.shown}</kbd>}
+      </button>
+    </li>
+  );
+  const sessionMenu = (alias: string) => [
+    menuItem('Open Tab', () => openHost(alias), {
+      aria: 'Enter',
+      shown: 'Enter',
+    }),
+    menuItem('Edit', () => editSession(alias), { aria: 'F2', shown: 'F2' }),
+    menuItem('Duplicate', () => duplicateSession(alias)),
+    <li key="separator" role="separator" />,
+    menuItem(
+      'Delete',
+      () => askDelete(alias),
+      { aria: 'Delete', shown: 'Del' },
+      'danger',
+    ),
+  ];
+
   const answer = (tab: TabId, trust: boolean) => {
     backend.answerHostKey(tab, trust);
     setQuestions((q) => withQuestion(q, tab));
@@ -269,6 +361,7 @@ export function App({
       backend.updateSettings({ fontSize: Math.min(Math.max(size, 6), 36) });
     };
     const onKey = (e: KeyboardEvent) => {
+      if (modal) return;
       const shortcut = appShortcut(e, mac);
       if (!shortcut || terminalShortcut(shortcut)) return;
       e.preventDefault();
@@ -322,6 +415,7 @@ export function App({
     tabs,
     active,
     settings.fontSize,
+    modal,
   ]);
 
   useEffect(() => {
@@ -349,30 +443,40 @@ export function App({
       <nav
         className="tree"
         aria-label="Session tree"
+        inert={modal}
         onContextMenu={(e) => {
           e.preventDefault();
           setTreeMenu({ left: e.clientX, top: e.clientY });
         }}
       >
         {treeMenu && (
-          <ul ref={treeMenuRef} role="menu" className="menu" style={treeMenu}>
-            <li role="none">
-              <button
-                role="menuitem"
-                disabled={
-                  reconnectingAll ||
-                  !tabs.some((t) => t.disconnected === 'retry')
-                }
-                onClick={() => {
-                  setTreeMenu(undefined);
-                  // The menu takes the focus with it when it closes.
-                  if (active) terms.current.get(active)?.focus();
-                  reconnectAll();
-                }}
-              >
-                Reconnect all disconnected Tabs
-              </button>
-            </li>
+          <ul
+            ref={treeMenuRef}
+            role="menu"
+            className="menu"
+            style={{ left: treeMenu.left, top: treeMenu.top }}
+          >
+            {treeMenu.alias ? (
+              sessionMenu(treeMenu.alias)
+            ) : (
+              <li role="none">
+                <button
+                  role="menuitem"
+                  disabled={
+                    reconnectingAll ||
+                    !tabs.some((t) => t.disconnected === 'retry')
+                  }
+                  onClick={() => {
+                    setTreeMenu(undefined);
+                    // The menu takes the focus with it when it closes.
+                    if (active) terms.current.get(active)?.focus();
+                    reconnectAll();
+                  }}
+                >
+                  Reconnect all disconnected Tabs
+                </button>
+              </li>
+            )}
           </ul>
         )}
         <div className="tree-actions">
@@ -384,6 +488,29 @@ export function App({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
+          <div className="new">
+            <button
+              aria-haspopup="menu"
+              onClick={() => setNewMenuOpen((o) => !o)}
+            >
+              New
+            </button>
+            {newMenuOpen && (
+              <ul role="menu" className="menu">
+                <li role="none">
+                  <button
+                    role="menuitem"
+                    onClick={() => {
+                      setNewMenuOpen(false);
+                      openDialog({ form: newForm(selectedFolder) });
+                    }}
+                  >
+                    SSH session
+                  </button>
+                </li>
+              </ul>
+            )}
+          </div>
           <div className="new">
             <button aria-haspopup="menu" onClick={() => setMenuOpen((o) => !o)}>
               New local shell
@@ -414,10 +541,21 @@ export function App({
           mac={mac}
           onSelectTab={setActive}
           onOpenHost={openHost}
+          onSession={(alias, action) => {
+            if (action === 'edit') editSession(alias);
+            else if (action === 'delete') askDelete(alias);
+            else setTreeMenu({ ...action, alias });
+          }}
+          onSelectFolder={setSelectedFolder}
           query={query}
         />
+        {notice && (
+          <p role="alert" className="warning">
+            {notice}
+          </p>
+        )}
       </nav>
-      <header className="header">
+      <header className="header" inert={modal}>
         {activeTab && (
           <>
             <span className="name">{tabLabel(activeTab)}</span>
@@ -433,7 +571,7 @@ export function App({
           </>
         )}
       </header>
-      <main className="terminals">
+      <main className="terminals" inert={modal}>
         {tabs.map((tab) => (
           <TerminalView
             key={tab.id}
@@ -459,6 +597,39 @@ export function App({
         )}
       </main>
       <ProfilingPanel profiler={backend} open={profiling} />
+      {dialog && (
+        <SessionDialog
+          backend={backend}
+          tree={tree}
+          start={dialog}
+          onCancel={() => setDialog(undefined)}
+          onSaved={(next, alias) => {
+            const from = dialog.edit?.alias;
+            setTree(next);
+            // A rename carries its Tabs along.
+            if (from && from !== alias)
+              setTabs((tabs) =>
+                tabs.map((t) =>
+                  t.source === from ? { ...t, source: alias } : t,
+                ),
+              );
+            setDialog(undefined);
+          }}
+        />
+      )}
+      {deleting && (
+        <DeleteSession
+          {...deleting}
+          tree={tree}
+          openTabs={tabs.filter((t) => t.source === deleting.alias).length}
+          onCancel={() => setDeleting(undefined)}
+          onDelete={async (deleteSecret) => {
+            const { alias, read } = deleting;
+            setTree(await backend.deleteSession(alias, read, deleteSecret));
+            setDeleting(undefined);
+          }}
+        />
+      )}
     </div>
   );
 }

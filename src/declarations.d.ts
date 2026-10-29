@@ -9,6 +9,7 @@ interface Window {
       listener: (message: import('./shared/ipc.ts').Message) => void,
     ): void;
     profiler: import('./shared/ipc.ts').Profiler;
+    dialogs: import('./shared/ipc.ts').Dialogs;
     window: import('./shared/ipc.ts').WindowControls;
   };
 }

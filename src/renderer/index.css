@@ -17,6 +17,8 @@
   --teal: light-dark(#1b7c83, #39c5cf);
   --warn: light-dark(#9a6700, #d29922);
   --danger: light-dark(#d1242f, #f85149);
+  --success: light-dark(#1a7f37, #3fb950);
+  --accent: light-dark(#1f883d, #238636);
   font:
     13px system-ui,
     sans-serif;
@@ -495,4 +497,279 @@ body,
 .profiling th {
   font-weight: 600;
   color: var(--fg-muted);
+}
+
+.menu button {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.menu kbd {
+  margin-left: auto;
+  font: inherit;
+  color: var(--faint);
+}
+
+.menu [role='separator'] {
+  margin: 4px 0;
+  border-top: 1px solid var(--border);
+}
+
+.menu .danger {
+  color: var(--danger);
+}
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: start center;
+  padding-top: 10vh;
+  background: rgb(1 4 9 / 40%);
+}
+
+.dialog {
+  box-sizing: border-box;
+  max-width: calc(100vw - 32px);
+  max-height: 80vh;
+  overflow: auto;
+  padding: 16px 20px;
+  background: var(--overlay);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px var(--shadow);
+}
+
+.session-dialog {
+  width: 780px;
+}
+
+.confirm {
+  width: 420px;
+}
+
+.dialog h2 {
+  margin: 0 0 16px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.dialog p {
+  margin: 4px 0;
+  line-height: 1.5;
+}
+
+.dialog code,
+.dialog .command input,
+.dialog .option input {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+}
+
+.dialog input,
+.dialog select,
+.dialog button {
+  font: inherit;
+  color: inherit;
+}
+
+.dialog input,
+.dialog select {
+  padding: 3px 6px;
+  background: var(--canvas);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.dialog input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.dialog input::placeholder {
+  color: var(--faint);
+}
+
+.dialog button {
+  padding: 3px 12px;
+  background: var(--button);
+  border: 1px solid var(--button-border);
+  border-radius: 6px;
+}
+
+.dialog button:hover {
+  background: var(--button-hover);
+}
+
+.dialog button:disabled {
+  opacity: 0.5;
+}
+
+.dialog .primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: #ffffff;
+}
+
+.dialog .primary:hover {
+  background: var(--accent);
+  filter: brightness(1.1);
+}
+
+.dialog .danger {
+  background: var(--danger);
+  border-color: transparent;
+  color: #ffffff;
+}
+
+.dialog .link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--teal);
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  gap: 12px 12px;
+  align-items: baseline;
+}
+
+.fields > label,
+.fields > .label {
+  color: var(--fg-muted);
+}
+
+.fields > select {
+  justify-self: start;
+}
+
+.command {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Each part of the command line is as wide as what it holds. */
+.command input {
+  field-sizing: content;
+  min-width: 6ch;
+}
+
+.option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 18em) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.option > p {
+  grid-column: 2 / -1;
+}
+
+.option .description {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-muted);
+}
+
+.option button {
+  padding: 0 6px;
+}
+
+.dialog .problem {
+  color: var(--danger);
+}
+
+.dialog .warn {
+  color: var(--warn);
+}
+
+.dialog .free {
+  color: var(--success);
+}
+
+.dialog .note {
+  color: var(--fg-muted);
+}
+
+.dialog .check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.secret {
+  position: relative;
+}
+
+.popover {
+  position: absolute;
+  top: 28px;
+  left: 0;
+  z-index: 1;
+  display: grid;
+  gap: 8px;
+  width: 300px;
+  padding: 12px;
+  background: var(--overlay);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px var(--shadow);
+}
+
+.popover .switch,
+.popover .actions {
+  display: flex;
+  gap: 12px;
+}
+
+.popover .actions {
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.popover .inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.popover .tabs [aria-selected='true'] {
+  border: 0;
+  border-bottom: 2px solid var(--teal);
+  border-radius: 0;
+  background: none;
+}
+
+.choices {
+  max-height: 160px;
+  margin: 8px 0 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.choices button {
+  width: 100%;
+  border: 0;
+  background: none;
+  text-align: left;
+}
+
+.choices .detail {
+  color: var(--fg-muted);
+}
+
+.dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
 }

@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webFrame } from 'electron';
 import type {
+  Dialogs,
   Message,
   Profiler,
   Request,
@@ -19,6 +20,9 @@ contextBridge.exposeInMainWorld('slop', {
     startTrace: profile('startTrace'),
     stopTrace: profile('stopTrace'),
   } satisfies Profiler,
+  dialogs: {
+    pickKeyFile: () => ipcRenderer.invoke('dialogs', 'pickKeyFile'),
+  } satisfies Dialogs,
   window: {
     setZoom: (factor) => webFrame.setZoomFactor(factor),
     setTheme: (theme) => ipcRenderer.send('theme', theme),

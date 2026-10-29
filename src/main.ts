@@ -10,7 +10,7 @@ import {
 } from 'electron';
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
-import type { Profiler, Request, Settings } from './shared/ipc.ts';
+import type { Dialogs, Profiler, Request, Settings } from './shared/ipc.ts';
 
 // `start:profile` gives the main process the default inspector port 9229, so the back end takes 9230.
 // Packaged builds skip it: their EnableNodeCliInspectArguments fuse rejects inspector arguments.
@@ -67,6 +67,25 @@ app.whenReady().then(() => {
   };
   ipcMain.handle('profiler', (_event, method: keyof Profiler) =>
     profiler[method](),
+  );
+
+  const dialogs: Dialogs = {
+    async pickKeyFile() {
+      const home = app.getPath('home');
+      const { canceled, filePaths } = await dialog.showOpenDialog(window, {
+        defaultPath: path.join(home, '.ssh'),
+        properties: ['openFile', 'showHiddenFiles'],
+      });
+      if (canceled || !filePaths[0]) return undefined;
+      // The same `~/` form the config store writes, so a synced config works on Windows and macOS.
+      const inHome = path.relative(home, filePaths[0]);
+      return inHome.startsWith('..') || path.isAbsolute(inHome)
+        ? filePaths[0]
+        : `~/${inHome.replaceAll(path.sep, '/')}`;
+    },
+  };
+  ipcMain.handle('dialogs', (_event, method: keyof Dialogs) =>
+    dialogs[method](),
   );
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {

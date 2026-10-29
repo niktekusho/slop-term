@@ -1,0 +1,56 @@
+// One line per `ssh_config` keyword, written for the dialog. A keyword missing here shows no description.
+export const optionDescriptions: Record<string, string> = {
+  addkeystoagent: 'Adds a key to the running agent after it unlocks.',
+  addressfamily:
+    'Connects over IPv4 only (inet), IPv6 only (inet6) or either (any).',
+  batchmode: 'Fails instead of asking for a password or passphrase.',
+  bindaddress: 'Connects from this local address.',
+  certificatefile: 'A certificate to offer with the key file.',
+  checkhostip: 'Also checks the host key under the IP address.',
+  ciphers: 'Encryption algorithms to offer, in order.',
+  compression: 'Compresses the traffic, which helps on slow links.',
+  connectionattempts: 'How many times to try connecting before giving up.',
+  connecttimeout: 'Seconds to wait for the connection before giving up.',
+  controlmaster: 'Shares one connection between several ssh commands.',
+  controlpath: 'The socket file a shared connection uses.',
+  controlpersist: 'Keeps a shared connection open after the last command ends.',
+  dynamicforward: 'Opens a SOCKS proxy on this local port.',
+  forwardagent:
+    'Lets the host use your local agent, for example to reach a further host.',
+  forwardx11: "Shows the host's X11 windows on this machine.",
+  hashknownhosts: 'Writes host names to known_hosts hashed.',
+  hostkeyalias: 'The name the host key is saved and checked under.',
+  hostkeyalgorithms: 'Host key types to accept, in order.',
+  identitiesonly:
+    'Offers only the key files set here, not every key in the agent.',
+  identityagent: 'The agent socket to use for keys.',
+  identityfile: 'Another key file to try.',
+  kexalgorithms: 'Key exchange algorithms to offer, in order.',
+  localcommand: 'A command to run on this machine after connecting.',
+  localforward:
+    'Forwards a local port to a host and port seen from the server.',
+  loglevel: 'How much ssh prints about the connection.',
+  macs: 'Message authentication algorithms to offer, in order.',
+  numberofpasswordprompts: 'How many times to ask for a password.',
+  passwordauthentication: 'Allows logging in with a password.',
+  permitlocalcommand: 'Allows LocalCommand to run.',
+  preferredauthentications: 'Login methods to try, in order.',
+  proxycommand: 'A command whose input and output carry the connection.',
+  proxyjump: 'Connects through this jump host first.',
+  pubkeyauthentication: 'Allows logging in with a key.',
+  remotecommand: 'A command to run on the host instead of a shell.',
+  remoteforward:
+    'Forwards a port on the server to a host and port seen from here.',
+  requesttty: 'Asks the host for a terminal.',
+  sendenv: 'Local environment variables to send to the host.',
+  serveralivecountmax:
+    'Missed keepalives before the connection counts as dropped.',
+  serveraliveinterval: 'Seconds between keepalives on an idle connection.',
+  setenv: 'Environment variables to set on the host.',
+  stricthostkeychecking:
+    'What to do with an unknown host key: ask, accept new ones, or refuse.',
+  tcpkeepalive: 'Sends TCP keepalives, so a dead link is noticed.',
+  updatehostkeys: 'Saves new host keys the server offers after logging in.',
+  userknownhostsfile: 'The known_hosts files to check and save host keys in.',
+  visualhostkey: 'Shows the host key as ASCII art when connecting.',
+};

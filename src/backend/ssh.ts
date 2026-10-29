@@ -22,7 +22,7 @@ import type {
   TerminalSize,
 } from '../shared/ipc.ts';
 import { hostExists, savedSession, saveCredential } from './config-store.ts';
-import { newKeychainEntry, provider } from './credentials.ts';
+import { accountName, newKeychainEntry, provider } from './credentials.ts';
 import {
   fingerprint,
   hostEntry,
@@ -228,8 +228,7 @@ export function openSshTab(
     const title = `Password for ${r.user}@${r.hostname}`;
     const offers: Partial<Record<Kind, SecretQuestion['save']>> = {};
     const fromProvider: Partial<Record<Kind, boolean>> = {};
-    // A password belongs to an account, a passphrase to a key file: new keychain entries are named after them.
-    const account = `${r.user}@${r.hostname}${r.port === 22 ? '' : `-${r.port}`}`;
+    const account = accountName(r);
     type Save = { kind: Kind; secret: string; name: string };
     let toSave: Save | undefined;
 

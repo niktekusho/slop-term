@@ -11,15 +11,18 @@ const expandTilde = (file: string) =>
 /**
  * Runs `ssh -G` with the `ssh` on PATH. OpenSSH finds `~` from the account, not from HOME.
  * `-F` would skip the system `ssh_config`, so it is passed only when HOME points elsewhere, as in tests.
+ * Each of `options` is a `Key value` line passed as `-o`, which wins over the config files.
  */
 export async function resolve(
   alias: string,
   config = homedir() === userInfo().homedir
     ? undefined
     : path.join(homedir(), '.ssh', 'config'),
+  options: string[] = [],
 ) {
   const { stdout } = await promisify(execFile)('ssh', [
     ...(config ? ['-F', config] : []),
+    ...options.flatMap((option) => ['-o', option]),
     '-G',
     '--',
     alias,

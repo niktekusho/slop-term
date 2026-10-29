@@ -25,9 +25,7 @@ type Open = (
   onClose: () => void,
 ) => Tab;
 
-export function createSessions(
-  emit: (event: BackendEvent) => void,
-): Pick<
+export function createSessions(emit: (event: BackendEvent) => void): Pick<
   Backend,
   | 'listShells'
   | 'openLocalShell'
@@ -39,10 +37,14 @@ export function createSessions(
   | 'write'
   | 'resize'
   | 'wake'
-> {
+> & {
+  /** Points the SSH Tabs of a renamed Saved session at its new alias, so a reconnect finds it. */
+  renamed(from: string, to: string): void;
+} {
   const tabs = new Map<TabId, Tab>();
   // A Tab keeps its opener after it exits, so a restart opens the same thing again.
   const openers = new Map<TabId, Open>();
+  const targets = new Map<TabId, { alias: string }>();
   let nextTab = 1;
 
   const start = (tab: TabId, open: Open) => {
@@ -91,9 +93,17 @@ export function createSessions(
     async openSsh(alias) {
       // Lives as long as the Tab, so a reconnect reuses what the user typed and the key they accepted.
       const memory: TabMemory = { typed: {} };
-      return launch((tab, emit, onClose) =>
-        openSshTab(alias, tab, emit, onClose, memory),
+      const target = { alias };
+      const id = launch((tab, emit, onClose) =>
+        openSshTab(target.alias, tab, emit, onClose, memory),
       );
+      targets.set(id, target);
+      return id;
+    },
+
+    renamed(from, to) {
+      for (const target of targets.values())
+        if (target.alias === from) target.alias = to;
     },
 
     async answerHostKey(tab, trust) {
@@ -106,6 +116,7 @@ export function createSessions(
 
     async close(tab) {
       openers.delete(tab);
+      targets.delete(tab);
       tabs.get(tab)?.close();
     },
 

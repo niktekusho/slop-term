@@ -6,6 +6,8 @@ import {
   type BackendEvent,
   type ProcessMetrics,
   type Request,
+  type SavedSession,
+  type SessionDefaults,
   type SessionTree,
   type Settings,
   type Shell,
@@ -23,6 +25,15 @@ export class FakeBackend implements BackendClient {
   tracing = false;
   traceFile: string | undefined = '/tmp/slop-term-trace.json';
   tree: SessionTree = emptyTree;
+  savedSessions: Record<string, SavedSession> = {};
+  defaults: SessionDefaults = {
+    hostname: '',
+    port: '22',
+    user: 'me',
+    identityFile: '~/.ssh/id_ed25519',
+  };
+  keyFile: string | undefined = '~/.ssh/id_web';
+  saveError: string | undefined;
   private listeners = new Set<(event: BackendEvent) => void>();
   private nextTab = 1;
 
@@ -104,6 +115,44 @@ export class FakeBackend implements BackendClient {
   async getTree() {
     this.requests.push({ method: 'getTree', args: [] });
     return this.tree;
+  }
+
+  async getSession(alias: string) {
+    this.requests.push({ method: 'getSession', args: [alias] });
+    const session = this.savedSessions[alias];
+    if (!session) throw new Error(`${alias} is not in slop-term.conf.`);
+    return session;
+  }
+
+  /** Puts the Saved session in the tree, as the real back end's reload would. */
+  async saveSession(...args: Parameters<Backend['saveSession']>) {
+    this.requests.push({ method: 'saveSession', args });
+    if (this.saveError) throw new Error(this.saveError);
+    const [{ alias, folder, credential }, edit] = args;
+    const others = this.tree.sessions.filter((s) => s.alias !== edit?.alias);
+    const saved = {
+      alias,
+      ...(folder && { folder }),
+      ...(credential && { credential }),
+    };
+    this.tree = { ...this.tree, sessions: [...others, saved] };
+    return this.tree;
+  }
+
+  async deleteSession(...args: Parameters<Backend['deleteSession']>) {
+    this.requests.push({ method: 'deleteSession', args });
+    const sessions = this.tree.sessions.filter((s) => s.alias !== args[0]);
+    this.tree = { ...this.tree, sessions };
+    return this.tree;
+  }
+
+  async sessionDefaults(...args: Parameters<Backend['sessionDefaults']>) {
+    this.requests.push({ method: 'sessionDefaults', args });
+    return { ...this.defaults, hostname: args[0] };
+  }
+
+  async pickKeyFile() {
+    return this.keyFile;
   }
 
   setZoom(factor: number) {
