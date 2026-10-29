@@ -1,0 +1,24 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [
+      "src/backend/**",
+      "src/shared/**",
+      "src/main.ts",
+      "src/preload.ts",
+      "src/**/*.test.ts",
+      "src/**/*.test.tsx"
+    ],
+    "ignoreValues": [
+      {
+        "rule": "flat-type-hierarchy",
+        "value": "*",
+        "files": [
+          ".scratch/slop-term-v1/prototypes/saved-session-dialog-look.html"
+        ],
+        "createdAt": "2026-10-22T14:46:37.614Z",
+        "reason": "Claude: throwaway prototype of a dense desktop UI; small close sizes follow the 22 px rows decided in Session tree look"
+      }
+    ]
+  }
+}
