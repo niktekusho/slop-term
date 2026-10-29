@@ -6,6 +6,7 @@ import type {
   TabId,
   TerminalSize,
 } from '../shared/ipc.ts';
+import { blockLines } from './config-store.ts';
 import { detectShells, launchLine } from './shells.ts';
 import { oscScanner } from './osc.ts';
 import { openSshTab, type TabMemory } from './ssh.ts';
@@ -37,6 +38,7 @@ export function createSessions(emit: (event: BackendEvent) => void): Pick<
   | 'write'
   | 'resize'
   | 'wake'
+  | 'testSession'
 > & {
   /** Points the SSH Tabs of a renamed Saved session at its new alias, so a reconnect finds it. */
   renamed(from: string, to: string): void;
@@ -99,6 +101,20 @@ export function createSessions(emit: (event: BackendEvent) => void): Pick<
       );
       targets.set(id, target);
       return id;
+    },
+
+    // A Test is a Tab with no opener: it can't restart.
+    // ponytail: a field cleared in an edit still tests the value in the file. `-o` can't unset it.
+    async testSession(form, secret) {
+      const memory: TabMemory = {
+        typed: secret ? { [secret.kind]: secret.secret } : {},
+      };
+      const plan = { options: blockLines(form), credential: form.credential };
+      const test = `test-${nextTab++}`;
+      start(test, (tab, emit, onClose) =>
+        openSshTab(form.alias, tab, emit, onClose, memory, plan),
+      );
+      return test;
     },
 
     renamed(from, to) {

@@ -151,6 +151,11 @@ export class FakeBackend implements BackendClient {
     return { ...this.defaults, hostname: args[0] };
   }
 
+  async testSession(...args: Parameters<Backend['testSession']>) {
+    this.requests.push({ method: 'testSession', args });
+    return `test-${this.nextTab++}`;
+  }
+
   async pickKeyFile() {
     return this.keyFile;
   }

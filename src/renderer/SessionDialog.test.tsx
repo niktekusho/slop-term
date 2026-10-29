@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { App } from './App.tsx';
@@ -6,6 +6,7 @@ import type {
   CredentialReference,
   SavedSession,
   SessionTree,
+  TestStep,
 } from '../shared/ipc.ts';
 import { FakeBackend } from './fake-backend.ts';
 
@@ -463,6 +464,138 @@ it('deletes nothing when a removed secret is replaced before Save', async () => 
   await user.click(save());
   expect(backend.sent('saveSession')[0][0].credential).toEqual(shared);
   expect(backend.sent('saveSession')[0][2]).toEqual({});
+});
+
+describe('Test', () => {
+  const checklist = () => within(dialog()).getByRole('list', { name: 'Test' });
+  const step = (label: string) =>
+    within(checklist()).getByText(label).closest('li')!;
+  /** `passed` steps passed, and the next one failed when a `reason` is given. */
+  const steps = (passed: number, reason?: string): TestStep[] =>
+    ['resolved', 'reached web:22', 'host key', 'logged in as me', 'SFTP'].map(
+      (label, i) =>
+        i < passed
+          ? { label, state: 'passed' }
+          : i === passed && reason
+            ? { label, state: 'failed', reason }
+            : { label, state: 'waiting' },
+    );
+
+  it('sits left of Cancel and Save, tests the unsaved form with a secret set but not saved, and shows the first failure', async () => {
+    const { backend, user } = await setup([{ alias: 'db' }]);
+    await openNew(user);
+    expect(
+      within(dialog().querySelector('footer')!)
+        .getAllByRole('button')
+        .map((b) => b.textContent),
+    ).toEqual(['Test', 'Cancel', 'Save']);
+    await user.type(field('Alias'), 'web');
+    await user.click(
+      within(dialog()).getByRole('button', { name: 'Set secret…' }),
+    );
+    const popover = screen.getByRole('form', { name: 'Set secret' });
+    await user.type(within(popover).getByLabelText('Secret'), 'pw');
+    await user.click(within(popover).getByRole('button', { name: 'Set' }));
+    await user.click(within(dialog()).getByRole('button', { name: 'Test' }));
+
+    expect(backend.sent('testSession')).toEqual([
+      [
+        expect.objectContaining({ alias: 'web', hostname: '' }),
+        { kind: 'password', secret: 'pw' },
+      ],
+    ]);
+    act(() =>
+      backend.emit({
+        type: 'test',
+        tab: 'test-1',
+        steps: steps(1, 'connect ECONNREFUSED'),
+      }),
+    );
+    expect(
+      [...checklist().querySelectorAll('li')].map((li) => [
+        li.className,
+        li.textContent,
+      ]),
+    ).toEqual([
+      ['passed', 'resolved'],
+      ['failed', 'reached web:22connect ECONNREFUSED'],
+      ['waiting', 'host key'],
+      ['waiting', 'logged in as me'],
+      ['waiting', 'SFTP'],
+    ]);
+    expect(within(step('reached web:22')).getByRole('alert')).toHaveTextContent(
+      'connect ECONNREFUSED',
+    );
+    expect(
+      within(dialog()).getByRole('button', { name: 'Test' }),
+    ).toBeEnabled();
+  });
+
+  it('asks about the host key and the password inside their steps, and stops the Test when the dialog closes', async () => {
+    const { backend, user } = await setup([{ alias: 'db' }]);
+    await openNew(user);
+    await user.type(field('Alias'), 'web');
+    await user.click(within(dialog()).getByRole('button', { name: 'Test' }));
+    expect(
+      within(dialog()).getByRole('button', { name: 'Test' }),
+    ).toBeDisabled();
+    act(() => backend.emit({ type: 'test', tab: 'test-1', steps: steps(2) }));
+    act(() =>
+      backend.emit({
+        type: 'hostKey',
+        tab: 'test-1',
+        question: {
+          kind: 'unknown',
+          alias: 'web',
+          host: 'web:22',
+          type: 'ssh-ed25519',
+          fingerprint: 'SHA256:abc',
+        },
+      }),
+    );
+    // A question for a Tab with another id stays out of the dialog.
+    act(() =>
+      backend.emit({
+        type: 'secret',
+        tab: 'tab-9',
+        question: { alias: 'x', title: 'Other', prompts: [] },
+      }),
+    );
+    const hostKey = within(step('host key')).getByRole('region', {
+      name: 'Host key',
+    });
+    expect(hostKey).toHaveTextContent('SHA256:abc');
+    await user.click(
+      within(hostKey).getByRole('button', { name: 'Trust and connect' }),
+    );
+    expect(backend.sent('answerHostKey')).toEqual([['test-1', true]]);
+
+    act(() => {
+      backend.emit({ type: 'hostKey', tab: 'test-1' });
+      backend.emit({ type: 'test', tab: 'test-1', steps: steps(3) });
+      backend.emit({
+        type: 'secret',
+        tab: 'test-1',
+        question: {
+          alias: 'web',
+          title: 'Password for me@web',
+          prompts: [{ prompt: 'Password', echo: false }],
+        },
+      });
+    });
+    expect(within(step('host key')).queryByRole('region')).toBeNull();
+    const login = within(step('logged in as me')).getByRole('form', {
+      name: 'Login',
+    });
+    expect(within(login).queryByRole('combobox')).toBeNull();
+    await user.type(within(login).getByLabelText('Password'), 'hunter2{Enter}');
+    expect(backend.sent('answerSecret')).toEqual([
+      ['test-1', ['hunter2'], false],
+    ]);
+
+    await user.click(within(dialog()).getByRole('button', { name: 'Cancel' }));
+    expect(backend.sent('close')).toEqual([['test-1']]);
+  });
 });
 
 describe('Delete', () => {

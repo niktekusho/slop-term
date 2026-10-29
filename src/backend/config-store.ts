@@ -291,7 +291,7 @@ function formOf(
   };
 }
 
-function blockLines(form: SessionForm) {
+export function blockLines(form: SessionForm) {
   const fields = (Object.keys(fieldParams) as Field[]).flatMap((f) => {
     const value = f === 'identityFile' ? tildePath(form[f]) : form[f];
     return value ? [directiveLine(fieldParams[f], value)] : [];
@@ -339,7 +339,7 @@ function mergeBlock(old: string[], alias: string, next: string[], eol: string) {
 }
 
 // OpenSSH rejects the whole config over one bad line, which breaks `ssh` for every host.
-const sshError = (e: unknown) =>
+export const sshError = (e: unknown) =>
   `ssh rejects these values: ${(e as { stderr?: string }).stderr?.trim() || (e as Error).message}`;
 
 export function createConfigStore(

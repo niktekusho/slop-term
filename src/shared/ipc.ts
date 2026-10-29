@@ -92,6 +92,13 @@ export type SessionDefaults = {
   identityFile: string;
 };
 
+/** One line of a Test's checklist. */
+export type TestStep = {
+  label: string;
+  state: 'passed' | 'failed' | 'waiting';
+  reason?: string;
+};
+
 /** A login question shown inside the Tab. A prompt with `echo` false hides what the user types. */
 export type SecretQuestion = {
   alias: string;
@@ -146,6 +153,11 @@ export interface Backend {
     deleteSecret: boolean,
   ): Promise<SessionTree>;
   sessionDefaults(alias: string, options: string[]): Promise<SessionDefaults>;
+  /**
+   * Connects with the form's unsaved values, opens SFTP and disconnects. `secret` is a secret set in the form but not saved yet.
+   * Its checklist comes as `test` events. Its questions come as a Tab's do, under the returned id; `close` stops it.
+   */
+  testSession(form: SessionForm, secret?: SecretChange['set']): Promise<TabId>;
 }
 
 // Served by the main process: native dialogs exist only there.
@@ -186,6 +198,8 @@ export type BackendEvent =
   /** For both questions, none means the connection closed and the open question is void. */
   | { type: 'hostKey'; tab: TabId; question?: HostKeyQuestion }
   | { type: 'secret'; tab: TabId; question?: SecretQuestion }
+  /** Steps pass in order. The first failure carries its reason and ends the Test. */
+  | { type: 'test'; tab: TabId; steps: TestStep[] }
   | { type: 'settings'; settings: Settings }
   | { type: 'tree'; tree: SessionTree };
 
@@ -239,6 +253,7 @@ const methods: { [M in keyof Backend]: true } = {
   saveSession: true,
   deleteSession: true,
   sessionDefaults: true,
+  testSession: true,
 };
 
 export function serve(backend: Backend, send: (message: Message) => void) {

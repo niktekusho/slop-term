@@ -12,7 +12,7 @@ import {
   it,
   vi,
 } from 'vitest';
-import type { CredentialReference, TabId } from '../shared/ipc.ts';
+import type { CredentialReference, SessionForm, TabId } from '../shared/ipc.ts';
 import { startBackend } from './harness.ts';
 import { fingerprint, savedKeys } from './known-hosts.ts';
 import {
@@ -98,6 +98,11 @@ const question = (tab: TabId) =>
   harness.events.flatMap((e) =>
     e.type === 'hostKey' && e.tab === tab ? [e.question] : [],
   );
+
+const checklist = (test: TabId) =>
+  harness.events
+    .flatMap((e) => (e.type === 'test' && e.tab === test ? [e.steps] : []))
+    .at(-1);
 
 async function loggedIn(tab: TabId) {
   await eventually(() => expect(harness.output(tab)).toContain('$ '));
@@ -281,6 +286,28 @@ describe('drop and reconnect against an in-process server', () => {
     );
     await harness.backend.restart(tab);
     await eventually(() => expect(connections(tab)).toHaveLength(2));
+  });
+
+  it('fails a Test at SFTP on a server without the SFTP subsystem', async () => {
+    await start('');
+    const test = await harness.backend.testSession({
+      alias: 'box',
+      folder: '',
+      hostname: '127.0.0.1',
+      port: String(fake.port),
+      user: 'test',
+      identityFile: '~/.ssh/id_test',
+      options: ['UserKnownHostsFile /dev/null', 'StrictHostKeyChecking no'],
+    });
+    await eventually(() =>
+      expect(checklist(test)).toEqual([
+        { label: 'resolved', state: 'passed' },
+        { label: `reached 127.0.0.1:${fake.port}`, state: 'passed' },
+        { label: 'host key', state: 'passed' },
+        { label: 'logged in as test', state: 'passed' },
+        { label: 'SFTP', state: 'failed', reason: expect.any(String) },
+      ]),
+    );
   });
 
   it('refuses for good to reconnect a Saved session deleted during the drop', async () => {
@@ -702,6 +729,197 @@ describe.skipIf(!docker)('SSH Tab against OpenSSH in Docker', () => {
           { type: 'dropped', tab, reason: 'Not connected: login cancelled.' },
         ]),
       );
+    });
+  });
+
+  describe('Test button', () => {
+    const form = (patch: Partial<SessionForm> = {}): SessionForm => ({
+      alias: 'box',
+      folder: '',
+      hostname: '127.0.0.1',
+      port: String(server.port),
+      user: 'test',
+      identityFile: '~/.ssh/id_test',
+      options: [`UserKnownHostsFile ${quoted(knownHosts())}`],
+      ...patch,
+    });
+    const labels = () => [
+      'resolved',
+      `reached 127.0.0.1:${server.port}`,
+      'host key',
+      'logged in as test',
+      'SFTP',
+    ];
+
+    it('resolves the unsaved values, asks about an unknown host inside the host key step, saves it on Trust, logs in and opens SFTP', async () => {
+      await start('');
+      const test = await harness.backend.testSession(form());
+      await eventually(() =>
+        expect(checklist(test)).toEqual([
+          { label: 'resolved', state: 'passed' },
+          { label: `reached 127.0.0.1:${server.port}`, state: 'passed' },
+          { label: 'host key', state: 'waiting' },
+          { label: 'logged in as test', state: 'waiting' },
+          { label: 'SFTP', state: 'waiting' },
+        ]),
+      );
+      await eventually(() =>
+        expect(question(test)).toEqual([
+          expect.objectContaining({ kind: 'unknown', alias: 'box' }),
+        ]),
+      );
+      await harness.backend.answerHostKey(test, true);
+      await eventually(() =>
+        expect(checklist(test)).toEqual(
+          labels().map((label) => ({ label, state: 'passed' })),
+        ),
+      );
+      expect(await readFile(knownHosts(), 'utf8')).toBe(
+        `${name()} ssh-ed25519 ${server.ed25519}\n`,
+      );
+      expect(
+        existsSync(path.join(harness.home, '.ssh', 'slop-term.conf')),
+      ).toBe(false);
+    });
+
+    /** The checklist with `failed` steps passed, the next one failed with `reason`, and the rest waiting. */
+    const failedAt = (failed: number, reason: unknown) =>
+      labels().map((label, i) =>
+        i < failed
+          ? { label, state: 'passed' }
+          : i === failed
+            ? { label, state: 'failed', reason }
+            : { label, state: 'waiting' },
+      );
+
+    it('fails at resolved with the jump-host message', async () => {
+      await start('');
+      const test = await harness.backend.testSession(
+        form({ options: ['ProxyJump bastion'] }),
+      );
+      await eventually(() =>
+        expect(checklist(test)).toEqual([
+          {
+            label: 'resolved',
+            state: 'failed',
+            reason:
+              "This host uses a jump host. slop-term v1 can't connect to it.",
+          },
+          ...['reached', 'host key', 'logged in', 'SFTP'].map((label) => ({
+            label,
+            state: 'waiting',
+          })),
+        ]),
+      );
+    });
+
+    it('fails at reached when nothing listens on the port', async () => {
+      await start('');
+      const test = await harness.backend.testSession(form({ port: '1' }));
+      await eventually(() =>
+        expect(checklist(test)).toEqual(
+          failedAt(1, expect.stringContaining('ECONNREFUSED')).map((s) => ({
+            ...s,
+            label: s.label.replace(String(server.port), '1'),
+          })),
+        ),
+      );
+    });
+
+    it('fails at host key when the user cancels the question, saving nothing', async () => {
+      await start('');
+      const test = await harness.backend.testSession(form());
+      await eventually(() => expect(question(test)).toHaveLength(1));
+      await harness.backend.answerHostKey(test, false);
+      await eventually(() =>
+        expect(checklist(test)).toEqual(
+          failedAt(2, 'Not connected: the host key was not trusted.'),
+        ),
+      );
+      expect(existsSync(knownHosts())).toBe(false);
+    });
+
+    describe('login', () => {
+      afterEach(async () => {
+        for (const { account } of await findCredentialsAsync(service))
+          await keychain(account).deletePassword();
+      });
+      const noKey = (patch: Partial<SessionForm> = {}) =>
+        form({
+          identityFile: '~/.ssh/missing',
+          options: [
+            `UserKnownHostsFile ${quoted(knownHosts())}`,
+            'StrictHostKeyChecking accept-new',
+          ],
+          ...patch,
+        });
+      const asked = (test: TabId) =>
+        harness.events.flatMap((e) =>
+          e.type === 'secret' && e.tab === test ? [e.question] : [],
+        );
+      const allPassed = () =>
+        eventually(() =>
+          expect(checklist(test)).toEqual(
+            labels().map((label) => ({ label, state: 'passed' })),
+          ),
+        );
+      let test: TabId;
+
+      it('asks for a password used for the test alone when no secret is attached, offering no save', async () => {
+        await start('', { managed: 'Host box\n  HostName 127.0.0.1\n' });
+        test = await harness.backend.testSession(noKey());
+        await eventually(() =>
+          expect(asked(test)).toEqual([
+            {
+              alias: 'box',
+              title: 'Password for test@127.0.0.1',
+              prompts: [{ prompt: 'Password', echo: false }],
+            },
+          ]),
+        );
+        await harness.backend.answerSecret(test, ['hunter2'], true);
+        await allPassed();
+        expect(await findCredentialsAsync(service)).toEqual([]);
+        expect(
+          existsSync(path.join(harness.home, '.ssh', 'slop-term.json')),
+        ).toBe(false);
+      });
+
+      it("logs in with the form's Credential reference without asking", async () => {
+        const entry = `test-ref-${process.pid}`;
+        await keychain(entry).setPassword('hunter2');
+        await start('');
+        test = await harness.backend.testSession(
+          noKey({
+            credential: { provider: 'keychain', entry, kind: 'password' },
+          }),
+        );
+        await allPassed();
+        expect(asked(test)).toEqual([]);
+      });
+
+      it('logs in with a secret set in the form but not saved yet', async () => {
+        await start('');
+        test = await harness.backend.testSession(noKey(), {
+          kind: 'password',
+          secret: 'hunter2',
+        });
+        await allPassed();
+        expect(asked(test)).toEqual([]);
+        expect(await findCredentialsAsync(service)).toEqual([]);
+      });
+
+      it('fails at logged in when the user cancels the password question', async () => {
+        await start('');
+        test = await harness.backend.testSession(noKey());
+        await eventually(() => expect(asked(test)).toHaveLength(1));
+        await harness.backend.answerSecret(test, null, false);
+        await eventually(() =>
+          expect(checklist(test)).toEqual(
+            failedAt(3, 'Not connected: login cancelled.'),
+          ),
+        );
+      });
     });
   });
 });

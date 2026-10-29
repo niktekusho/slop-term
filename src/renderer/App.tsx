@@ -191,6 +191,8 @@ export function App({
       backend.onEvent((event) => {
         if (event.type === 'settings') return setSettings(event.settings);
         if (event.type === 'tree') return setTree(event.tree);
+        // The Saved session dialog shows a Test's checklist.
+        if (event.type === 'test') return;
         if (event.type === 'tab') {
           const { type: _, tab, ...update } = event;
           return updateTab(tab, update);

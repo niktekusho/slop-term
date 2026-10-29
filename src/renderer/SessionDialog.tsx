@@ -1,12 +1,24 @@
-import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
 import type {
   BackendClient,
   CredentialReference,
+  HostKeyQuestion,
   SecretChange,
+  SecretQuestion,
   SessionDefaults,
   SessionForm,
   SessionTree,
+  TabId,
+  TestStep,
 } from '../shared/ipc.ts';
+import { HostKeyPrompt } from './HostKeyPrompt.tsx';
+import { SecretPrompt } from './SecretPrompt.tsx';
 import {
   aliasProblem,
   jumpWarning,
@@ -256,6 +268,14 @@ export function SessionDialog({
   const [added, setAdded] = useState<number>();
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
+  const [test, setTest] = useState<{
+    steps?: TestStep[];
+    hostKey?: HostKeyQuestion;
+    secret?: SecretQuestion;
+  }>();
+  // Set as the id arrives, before React renders: the first checklist event can follow at once.
+  const testId = useRef<TabId>(undefined);
+  const closed = useRef(false);
   const update = (patch: Partial<SessionForm>) =>
     setForm((f) => ({ ...f, ...patch }));
 
@@ -282,6 +302,45 @@ export function SessionDialog({
       live = false;
     };
   }, [backend, form.alias, options]);
+
+  // Closing the dialog stops a running Test.
+  useEffect(() => {
+    const off = backend.onEvent((e) => {
+      if (!('tab' in e) || e.tab !== testId.current) return;
+      if (e.type === 'test') setTest((t) => ({ ...t, steps: e.steps }));
+      if (e.type === 'hostKey') setTest((t) => ({ ...t, hostKey: e.question }));
+      if (e.type === 'secret') setTest((t) => ({ ...t, secret: e.question }));
+    });
+    return () => {
+      off();
+      closed.current = true;
+      if (testId.current) void backend.close(testId.current);
+    };
+  }, [backend]);
+
+  const steps = test?.steps;
+  const testing =
+    !!test &&
+    !steps?.some((s) => s.state === 'failed') &&
+    !steps?.every((s) => s.state === 'passed');
+  // The step a question belongs to: the first one that hasn't passed.
+  const current = steps?.findIndex((s) => s.state !== 'passed');
+
+  const runTest = () => {
+    setTest({});
+    setError(undefined);
+    backend.testSession(form, set).then(
+      (id) => {
+        testId.current = id;
+        // The dialog closed before the id arrived.
+        if (closed.current) void backend.close(id);
+      },
+      (e: Error) => {
+        setTest(undefined);
+        setError(e.message);
+      },
+    );
+  };
 
   const folders = [
     ...new Set([
@@ -507,12 +566,51 @@ export function SessionDialog({
           )}
         </div>
       </div>
+      {steps && (
+        <ol className="checklist" aria-label="Test">
+          {steps.map((s, i) => (
+            <li key={i} className={s.state}>
+              {s.label}
+              {s.reason && (
+                <p role="alert" className="problem">
+                  {s.reason}
+                </p>
+              )}
+              {i === current && test?.hostKey && (
+                <HostKeyPrompt
+                  question={test.hostKey}
+                  onAnswer={(trust) => {
+                    setTest((t) => ({ ...t, hostKey: undefined }));
+                    void backend.answerHostKey(testId.current!, trust);
+                  }}
+                />
+              )}
+              {i === current && test?.secret && (
+                <SecretPrompt
+                  question={test.secret}
+                  onAnswer={(answers, save) => {
+                    setTest((t) => ({ ...t, secret: undefined }));
+                    void backend.answerSecret(testId.current!, answers, save);
+                  }}
+                />
+              )}
+            </li>
+          ))}
+        </ol>
+      )}
       {error && (
         <p role="alert" className="problem">
           {error}
         </p>
       )}
       <footer>
+        <button
+          className="test"
+          disabled={testing || !!aliasError || problems.some(Boolean)}
+          onClick={runTest}
+        >
+          Test
+        </button>
         <button onClick={onCancel}>Cancel</button>
         <button
           className="primary"

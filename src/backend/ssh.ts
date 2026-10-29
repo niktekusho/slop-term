@@ -21,7 +21,12 @@ import type {
   TabId,
   TerminalSize,
 } from '../shared/ipc.ts';
-import { hostExists, savedSession, saveCredential } from './config-store.ts';
+import {
+  hostExists,
+  savedSession,
+  saveCredential,
+  sshError,
+} from './config-store.ts';
 import { accountName, newKeychainEntry, provider } from './credentials.ts';
 import {
   fingerprint,
@@ -39,6 +44,12 @@ export type SshTab = {
   answerSecret(answers: string[] | null, save: boolean): void;
   close(): void;
   keepalive(): void;
+};
+
+/** A Test connects with a dialog's unsaved values: `options` are its lines, passed to `ssh -G` as `-o`. */
+export type TestPlan = {
+  options: string[];
+  credential?: CredentialReference;
 };
 
 /** What a Tab remembers across its connections. */
@@ -94,8 +105,37 @@ export function openSshTab(
   emit: (event: BackendEvent) => void,
   onClose: () => void,
   memory: TabMemory,
+  test?: TestPlan,
 ): SshTab {
   const { typed } = memory;
+  // A Test's checklist. A failure lands on the first step that hasn't passed.
+  // `ssh -G` fills in where and as whom once it has resolved.
+  let where = '';
+  let who = '';
+  let passed = 0;
+  const report = (reason?: string) =>
+    emit({
+      type: 'test',
+      tab,
+      steps: [
+        'resolved',
+        `reached${where}`,
+        'host key',
+        `logged in${who}`,
+        'SFTP',
+      ].map((label, i) =>
+        i < passed
+          ? { label, state: 'passed' }
+          : i === passed && reason
+            ? { label, state: 'failed', reason }
+            : { label, state: 'waiting' },
+      ),
+    });
+  const pass = () => {
+    if (!test) return;
+    passed++;
+    report();
+  };
   const client = new Client();
   let size: TerminalSize = { cols: 80, rows: 24 };
   let channel: ClientChannel | undefined;
@@ -121,7 +161,9 @@ export function openSshTab(
     }
     client.end();
     onClose();
-    if (reason) emit({ type: 'dropped', tab, reason, ...(final && { final }) });
+    if (reason && test) report(reason);
+    else if (reason)
+      emit({ type: 'dropped', tab, reason, ...(final && { final }) });
   };
   const ask = (question: HostKeyQuestion) =>
     new Promise<boolean>((resolve) => {
@@ -160,11 +202,17 @@ export function openSshTab(
 
   async function connect() {
     // Closing before the first await would call onClose before openSshTab returns the Tab.
-    const r = await resolve(alias);
-    if (!hostExists(alias))
+    const r = await resolve(alias, undefined, test?.options).catch((e) => {
+      throw test ? new Error(sshError(e)) : e;
+    });
+    if (!test && !hostExists(alias))
       return close('This Saved session no longer exists.', true);
     if (r.jumpHost) return close(jumpHostMessage, true);
-    emit({ type: 'tab', tab, address: `${r.user}@${r.hostname}` });
+    if (test) {
+      where = ` ${r.hostname}:${r.port}`;
+      who = ` as ${r.user}`;
+      pass();
+    } else emit({ type: 'tab', tab, address: `${r.user}@${r.hostname}` });
 
     const name = knownHostName(r.hostKeyAlias ?? r.hostname, r.port);
     // `ssh -G` on Windows mixes `\` and `/`; the changed-key warning shows the native path.
@@ -221,9 +269,9 @@ export function openSshTab(
       return trust;
     }
 
-    // Undefined for a Hand-written host: it carries no reference and offers no save.
-    const session = savedSession(alias);
-    const ref = session?.credential;
+    // Undefined for a Hand-written host and for a Test: neither offers a save.
+    const session = test ? undefined : savedSession(alias);
+    const ref = test ? test.credential : session?.credential;
     const username = r.user;
     const title = `Password for ${r.user}@${r.hostname}`;
     const offers: Partial<Record<Kind, SecretQuestion['save']>> = {};
@@ -245,7 +293,7 @@ export function openSshTab(
         delete typed[kind];
         if (fromProvider[kind]) {
           reason = `The saved ${kind} was rejected.`;
-          offers[kind] = 'update';
+          if (session) offers[kind] = 'update';
         } else
           reason =
             kind === 'password'
@@ -259,7 +307,7 @@ export function openSshTab(
           return read;
         } catch (e) {
           reason = (e as Error).message;
-          offers[kind] = 'same';
+          if (session) offers[kind] = 'same';
         }
       else if (session && !ref) offers[kind] = 'new';
       fromProvider[kind] = false;
@@ -396,7 +444,16 @@ export function openSshTab(
           declined ? 'Not connected: the host key was not trusted.' : e.message,
         );
       })
+      .on('connect', pass)
       .on('ready', () => {
+        if (test) {
+          pass();
+          return client.sftp((err) => {
+            if (err) return close(err.message);
+            pass();
+            close();
+          });
+        }
         // Comes first, so the UI's reconnect divider sits above the save messages.
         emit({ type: 'connected', tab });
         // A second keyboard-interactive round means the first prompt wasn't the whole login.
@@ -454,7 +511,10 @@ export function openSshTab(
           trusted(blob).then(
             (ok) => {
               declined = !ok;
-              if (ok) memory.hostKey = blob.toString('base64');
+              if (ok) {
+                memory.hostKey = blob.toString('base64');
+                pass();
+              }
               verify(ok);
             },
             (e: Error) => close(e.message),
