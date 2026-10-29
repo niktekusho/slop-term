@@ -15,6 +15,32 @@ export function aliasProblem(alias: string, taken: string[]) {
   return undefined;
 }
 
+/** The folder name rules the inline edit shows and the back end checks. `siblings` leaves out the folder's own name. */
+export function folderProblem(name: string, siblings: string[]) {
+  const trimmed = name.trim();
+  if (!trimmed) return 'Type a name.';
+  if (trimmed.includes('/')) return 'No / in a folder name.';
+  if (siblings.some((s) => s.toLowerCase() === trimmed.toLowerCase()))
+    return `${trimmed} is already here.`;
+  return undefined;
+}
+
+// A folder path joins its names with `/`; '' is the top level.
+export const parentOf = (folder: string) =>
+  folder.slice(0, Math.max(folder.lastIndexOf('/'), 0));
+export const nameOf = (folder: string) =>
+  folder.slice(folder.lastIndexOf('/') + 1);
+export const joinFolder = (parent: string, name: string) =>
+  parent ? `${parent}/${name}` : name;
+
+/** Whether a folder path is `folder` itself or one of its subfolders. */
+export const inFolder = (path: string, folder: string) =>
+  path === folder || path.startsWith(`${folder}/`);
+
+/** TPM entries belong to the team's password manager: the app deletes only secrets it saved itself. */
+export const deletable = (ref: CredentialReference) =>
+  ref.provider === 'keychain';
+
 /** `ssh -G` sees every line of a block, so these three in an option row would hide behind the command line's values. */
 const commandLineKeys = new Set(['hostname', 'port', 'user']);
 

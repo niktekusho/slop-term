@@ -18,6 +18,12 @@ import type {
 } from '../shared/ipc.ts';
 import {
   aliasProblem,
+  deletable,
+  folderProblem,
+  inFolder,
+  joinFolder as join,
+  nameOf,
+  parentOf,
   optionProblem,
   sameEntry,
 } from '../shared/session-rules.ts';
@@ -145,6 +151,16 @@ type Sidecar = {
   credentialOf: (alias: string) => CredentialReference | undefined;
 };
 
+const folderList = (raw: RawSidecar): string[] =>
+  Array.isArray(raw.folders)
+    ? raw.folders.filter((f) => typeof f === 'string')
+    : [];
+
+const folderOf = (raw: RawSidecar, alias: string) => {
+  const folder = sidecarEntry(raw, alias)?.folder;
+  return typeof folder === 'string' && folder ? folder : undefined;
+};
+
 // The file is synced and edited by hand, so every field is checked before use.
 function readSidecar(file: string, warnings: Set<string>): Sidecar {
   let raw: RawSidecar = {};
@@ -153,15 +169,33 @@ function readSidecar(file: string, warnings: Set<string>): Sidecar {
   } catch (e) {
     warnings.add((e as Error).message);
   }
-  const folders = Array.isArray(raw.folders) ? raw.folders : [];
   return {
-    folders: folders.filter((f) => typeof f === 'string'),
-    folderOf(alias) {
-      const folder = sidecarEntry(raw, alias)?.folder;
-      return typeof folder === 'string' && folder ? folder : undefined;
-    },
+    folders: folderList(raw),
+    folderOf: (alias) => folderOf(raw, alias),
     credentialOf: (alias) => credentialOf(sidecarEntry(raw, alias)),
   };
+}
+
+/** Every folder the tree shows: the Sidecar list, the folder of each session in `aliases`, and all their parents. */
+function shownFolders(raw: RawSidecar, aliases: Iterable<string>) {
+  const paths = [
+    ...folderList(raw),
+    ...[...aliases].flatMap((alias) => folderOf(raw, alias) ?? []),
+  ];
+  return new Set(
+    paths.flatMap((p) =>
+      p.split('/').map((_, i, names) => names.slice(0, i + 1).join('/')),
+    ),
+  );
+}
+
+/** Points the folder and everything under it at `to`, in the folder list and in every host entry. */
+function relocate(raw: RawSidecar, from: string, to: string) {
+  const swap = (p: string) =>
+    inFolder(p, from) ? to + p.slice(from.length) : p;
+  raw.folders = folderList(raw).map(swap);
+  for (const entry of Object.values(raw.hosts ?? {}))
+    if (typeof entry?.folder === 'string') entry.folder = swap(entry.folder);
 }
 
 function credentialOf(entry: Record<string, unknown> | undefined) {
@@ -237,20 +271,42 @@ const directiveLine = (param: string, value: string) =>
     after: '',
   });
 
-/** The lines of `alias`'s Host block up to its last directive: a comment under it belongs to the next block. */
-function findBlock(lines: string[], alias: string) {
-  const start = lines.findIndex(
+const hostLineOf = (lines: string[], alias: string) =>
+  lines.findIndex(
     (line) => hostLine.test(line) && words(parseLine(line)).includes(alias),
   );
+
+/** The lines of `alias`'s Host block up to its last directive: a comment under it belongs to the next block. */
+function findBlock(lines: string[], alias: string, file = 'slop-term.conf') {
+  const start = hostLineOf(lines, alias);
   if (start < 0) return undefined;
   if (words(parseLine(lines[start])).length > 1)
     throw new Error(
-      `Edit ${alias} in slop-term.conf by hand: its Host line names more than one host.`,
+      `Edit ${alias} in ${file} by hand: its Host line names more than one host.`,
     );
   let end = start + 1;
   for (let i = start + 1; i < lines.length && !sectionStart.test(lines[i]); i++)
     if (isDirective(lines[i])) end = i + 1;
   return { start, end };
+}
+
+/** Lines that keep their line breaks. A last line without one gets the file's own. */
+function splitLines(text: string) {
+  const eol = text.includes('\r\n') ? '\r\n' : '\n';
+  const ended = text && !text.endsWith('\n') ? text + eol : text;
+  return { lines: ended.split(/(?<=\n)/).filter(Boolean), eol };
+}
+
+function cutBlock(
+  lines: string[],
+  { start, end }: { start: number; end: number },
+) {
+  const out = [...lines];
+  out.splice(start, end - start);
+  // The blank line that separated the block goes with it.
+  if (out[start]?.trim() === '' && (start === 0 || !out[start - 1].trim()))
+    out.splice(start, 1);
+  return out;
 }
 
 const fieldParams = {
@@ -347,13 +403,24 @@ export function createConfigStore(
   onRename: (from: string, to: string) => void,
 ): Pick<
   Backend,
-  'getTree' | 'getSession' | 'saveSession' | 'deleteSession' | 'sessionDefaults'
+  | 'getTree'
+  | 'getSession'
+  | 'saveSession'
+  | 'deleteSession'
+  | 'sessionDefaults'
+  | 'createFolder'
+  | 'renameFolder'
+  | 'move'
+  | 'deleteFolder'
+  | 'moveIn'
+  | 'commentOut'
 > {
   const dir = path.join(homedir(), '.ssh');
   const managed = ssh('slop-term.conf');
   const sidecarFile = ssh('slop-term.json');
+  const config = ssh('config');
   mkdirSync(dir, { recursive: true, mode: 0o700 });
-  addInclude(path.join(dir, 'config'));
+  addInclude(config);
 
   const load = (): SessionTree => {
     const warnings = new Set<string>();
@@ -363,17 +430,27 @@ export function createConfigStore(
       return [...scan.hosts];
     };
     const sessions = hostsIn(managed);
-    const handWritten = hostsIn(path.join(dir, 'config'));
+    // A Managed host wins over its namesake in ~/.ssh/config, so the tree lists it once.
+    const handWritten = hostsIn(config).filter((a) => !sessions.includes(a));
+    let configLines: string[] = [];
+    try {
+      configLines = splitLines(readText(config) ?? '').lines;
+    } catch {
+      // hostsIn already warned that the file can't be read.
+    }
     const sidecar = readSidecar(path.join(dir, 'slop-term.json'), warnings);
     return {
       folders: sidecar.folders,
       sessions: sessions.map((alias) => {
         const folder = sidecar.folderOf(alias);
         const credential = sidecar.credentialOf(alias);
+        // ponytail: a namesake in a file ~/.ssh/config includes gets no warning, since the line edit can't reach it.
+        const line = hostLineOf(configLines, alias) + 1;
         return {
           alias,
           ...(folder && { folder }),
           ...(credential && { credential }),
+          ...(line && { alsoInConfig: line }),
         };
       }),
       handWritten,
@@ -403,10 +480,7 @@ export function createConfigStore(
 
   /** Throws on a Sidecar file that is not valid JSON, so a save never writes over it. */
   const current = (alias: string) => {
-    const text = readText(managed) ?? '';
-    const eol = text.includes('\r\n') ? '\r\n' : '\n';
-    const ended = text && !text.endsWith('\n') ? text + eol : text;
-    const lines = ended.split(/(?<=\n)/).filter(Boolean);
+    const { lines, eol } = splitLines(readText(managed) ?? '');
     const block = findBlock(lines, alias);
     const raw = parseSidecar(sidecarFile);
     const entry = sidecarEntry(raw, alias);
@@ -424,8 +498,22 @@ export function createConfigStore(
       `${alias} changed in slop-term.conf or slop-term.json since it was opened. Cancel and open it again.`,
     );
 
+  const gone = (item: string) =>
+    `${item} is no longer in slop-term.conf or slop-term.json.`;
+
   const writeSidecar = (raw: RawSidecar) =>
     writeFileSync(sidecarFile, JSON.stringify(raw, null, 2) + '\n');
+
+  const children = (raw: RawSidecar, parent: string) =>
+    [...shownFolders(raw, hostsIn(managed))]
+      .filter((f) => parentOf(f) === parent)
+      .map(nameOf);
+
+  const checkName = (name: string, siblings: string[]) => {
+    const problem = folderProblem(name, siblings);
+    if (problem) throw new Error(problem);
+    return name.trim();
+  };
 
   // Only sessions in the tree count: an orphaned Sidecar entry's host is gone.
   async function dropSecret(ref: CredentialReference, raw: RawSidecar) {
@@ -456,7 +544,7 @@ export function createConfigStore(
 
     async saveSession(form, edit, secret = {}) {
       const own = edit?.alias ?? form.alias;
-      const taken = [...hostsIn(managed, path.join(dir, 'config'))].filter(
+      const taken = [...hostsIn(managed, config)].filter(
         (alias) => alias !== edit?.alias,
       );
       const problem =
@@ -551,16 +639,7 @@ export function createConfigStore(
     async deleteSession(alias, read, deleteSecret) {
       const now = current(alias);
       if (!now.block || now.read !== read) throw changed(alias);
-      const { start, end } = now.block;
-      const lines = [...now.lines];
-      lines.splice(start, end - start);
-      // The blank line that separated the block goes with it.
-      if (
-        lines[start]?.trim() === '' &&
-        (start === 0 || !lines[start - 1].trim())
-      )
-        lines.splice(start, 1);
-      writeFileSync(managed, lines.join(''));
+      writeFileSync(managed, cutBlock(now.lines, now.block).join(''));
       const raw = {
         ...now.raw,
         hosts: Object.fromEntries(
@@ -570,6 +649,132 @@ export function createConfigStore(
       if (now.entry) writeSidecar(raw);
       const credential = credentialOf(now.entry);
       if (deleteSecret && credential) await dropSecret(credential, raw);
+      return reload();
+    },
+
+    async createFolder(parent, name) {
+      const raw = parseSidecar(sidecarFile);
+      const folder = join(parent, checkName(name, children(raw, parent)));
+      raw.folders = [...folderList(raw), folder];
+      writeSidecar(raw);
+      return reload();
+    },
+
+    async renameFolder(folder, name) {
+      const raw = parseSidecar(sidecarFile);
+      if (!shownFolders(raw, hostsIn(managed)).has(folder))
+        throw new Error(gone(folder));
+      const parent = parentOf(folder);
+      const siblings = children(raw, parent).filter(
+        (n) => n !== nameOf(folder),
+      );
+      relocate(raw, folder, join(parent, checkName(name, siblings)));
+      writeSidecar(raw);
+      return reload();
+    },
+
+    async move(item, to) {
+      const raw = parseSidecar(sidecarFile);
+      const live = hostsIn(managed);
+      if ('alias' in item) {
+        if (!live.has(item.alias)) throw new Error(gone(item.alias));
+        // A folder that only this session names would vanish with the move, but empty folders stay.
+        const old = folderOf(raw, item.alias);
+        if (old && !folderList(raw).includes(old))
+          raw.folders = [...folderList(raw), old];
+        const { folder: _, ...rest } = sidecarEntry(raw, item.alias) ?? {};
+        const entry = to ? { ...rest, folder: to } : rest;
+        const hosts = { ...raw.hosts, [item.alias]: entry };
+        if (!Object.keys(entry).length) delete hosts[item.alias];
+        raw.hosts = hosts;
+      } else {
+        const { folder } = item;
+        if (!shownFolders(raw, live).has(folder)) throw new Error(gone(folder));
+        if (inFolder(to, folder))
+          throw new Error("A folder can't move into itself or its subfolders.");
+        if (parentOf(folder) === to) return reload();
+        relocate(
+          raw,
+          folder,
+          join(to, checkName(nameOf(folder), children(raw, to))),
+        );
+      }
+      writeSidecar(raw);
+      return reload();
+    },
+
+    async deleteFolder(folder, aliases, deleteSecrets) {
+      const raw = parseSidecar(sidecarFile);
+      const doomed = [...hostsIn(managed)].filter((alias) =>
+        inFolder(folderOf(raw, alias) ?? '', folder),
+      );
+      if (doomed.toSorted().join('\n') !== aliases.toSorted().join('\n'))
+        throw new Error(
+          `${folder} changed since you asked to delete it. Try again.`,
+        );
+      let { lines } = splitLines(readText(managed) ?? '');
+      for (const alias of doomed) {
+        const block = findBlock(lines, alias);
+        // A host from a file slop-term.conf includes has no block here.
+        if (!block)
+          throw new Error(
+            `Delete ${alias} by hand: it is not in slop-term.conf itself.`,
+          );
+        lines = cutBlock(lines, block);
+      }
+      const refs = doomed.flatMap((alias) => {
+        const ref = credentialOf(sidecarEntry(raw, alias));
+        return ref && deletable(ref) ? [ref] : [];
+      });
+      raw.folders = folderList(raw).filter((f) => !inFolder(f, folder));
+      raw.hosts = Object.fromEntries(
+        Object.entries(raw.hosts ?? {}).filter(([a]) => !doomed.includes(a)),
+      );
+      if (doomed.length) writeFileSync(managed, lines.join(''));
+      writeSidecar(raw);
+      // A secret two of these sessions share comes up twice: the second delete finds nothing and fails quietly.
+      if (deleteSecrets) for (const ref of refs) await dropSecret(ref, raw);
+      return reload();
+    },
+
+    async moveIn(alias) {
+      if (hostsIn(managed).has(alias))
+        throw new Error(`${alias} is already in slop-term.conf.`);
+      const { lines } = splitLines(readText(config) ?? '');
+      const block = findBlock(lines, alias, '~/.ssh/config');
+      if (!block)
+        throw new Error(
+          `Move ${alias} by hand: it is not in ~/.ssh/config itself.`,
+        );
+      const now = splitLines(readText(managed) ?? '');
+      const copy = lines
+        .slice(block.start, block.end)
+        .map((line) => line.replace(/\r?\n$/, now.eol));
+      const gap = now.lines.at(-1)?.trim() ? [now.eol] : [];
+      writeFileSync(managed, [...now.lines, ...gap, ...copy].join(''));
+      return reload();
+    },
+
+    // The only edit the app makes to ~/.ssh/config besides the include line: a comment, never a delete.
+    async commentOut(alias) {
+      if (!hostsIn(managed).has(alias))
+        throw new Error(
+          `${alias} is not in slop-term.conf, so commenting it out would lose it.`,
+        );
+      const { lines, eol } = splitLines(readText(config) ?? '');
+      const block = findBlock(lines, alias, '~/.ssh/config');
+      if (!block) throw new Error(`${alias} is not in ~/.ssh/config itself.`);
+      const commented = lines
+        .slice(block.start, block.end)
+        .map((line) => (line.trim() ? `# ${line}` : line));
+      const out = [...lines];
+      out.splice(
+        block.start,
+        block.end - block.start,
+        `# moved to slop-term.conf${eol}`,
+        ...commented,
+      );
+      writeFileSync(config, out.join(''));
       return reload();
     },
 

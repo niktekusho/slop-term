@@ -14,6 +14,7 @@ import {
   type CredentialReference,
   type HostKeyQuestion,
   type SecretQuestion,
+  type SessionTree as Tree,
   type Settings,
   type Shell,
   type TabId,
@@ -21,12 +22,27 @@ import {
 import { TerminalView } from './TerminalView.tsx';
 import { ProfilingPanel } from './ProfilingPanel.tsx';
 import {
+  folderPaths,
   SessionTree,
   shellLabel,
   tabLabel,
   tabOrder,
   type Tab,
+  type TreeItem,
 } from './SessionTree.tsx';
+import {
+  CommentOut,
+  DeleteFolder,
+  MoveTo,
+  type FolderContents,
+} from './TreeDialogs.tsx';
+import {
+  deletable,
+  inFolder,
+  nameOf,
+  parentOf,
+  sameEntry,
+} from '../shared/session-rules.ts';
 import { terminalOptions } from './look.ts';
 import { HostKeyPrompt } from './HostKeyPrompt.tsx';
 import { SecretPrompt } from './SecretPrompt.tsx';
@@ -70,11 +86,12 @@ export function App({
   const [active, setActive] = useState<TabId>();
   const [menuOpen, setMenuOpen] = useState(false);
   const [newMenuOpen, setNewMenuOpen] = useState(false);
-  // With an alias, the menu of that Saved session; without, the tree's own.
+  // With an alias or a folder, the menu of that row; with neither, the tree's own.
   const [treeMenu, setTreeMenu] = useState<{
     left: number;
     top: number;
     alias?: string;
+    folder?: string;
   }>();
   const [selectedFolder, setSelectedFolder] = useState('');
   const [dialog, setDialog] = useState<DialogStart>();
@@ -83,8 +100,13 @@ export function App({
     read: string;
     credential?: CredentialReference;
   }>();
+  const [editing, setEditing] = useState<{ parent: string; folder?: string }>();
+  const [moving, setMoving] = useState<{ item: TreeItem; current: string }>();
+  const [deletingFolder, setDeletingFolder] = useState<FolderContents>();
+  const [movedIn, setMovedIn] = useState<string>();
   const [notice, setNotice] = useState<string>();
-  const modal = !!dialog || !!deleting;
+  const modal =
+    !!dialog || !!deleting || !!moving || !!deletingFolder || !!movedIn;
   const [reconnectingAll, setReconnectingAll] = useState(false);
   const treeMenuRef = useRef<HTMLUListElement>(null);
   const [profiling, setProfiling] = useState(false);
@@ -299,17 +321,93 @@ export function App({
       })
       .catch(fail);
 
+  const update = (call: Promise<Tree>) => call.then(setTree, fail);
+
+  const moveTo = (item: TreeItem) =>
+    setMoving({
+      item,
+      current:
+        'alias' in item
+          ? (tree.sessions.find((s) => s.alias === item.alias)?.folder ?? '')
+          : parentOf(item.folder),
+    });
+
+  const rename = (folder: string) =>
+    setEditing({ parent: parentOf(folder), folder });
+
+  const finishEdit = (name?: string) => {
+    setEditing(undefined);
+    if (!editing || name === undefined) return;
+    const { parent, folder } = editing;
+    if (!folder) void update(backend.createFolder(parent, name));
+    else if (nameOf(folder) !== name)
+      void update(backend.renameFolder(folder, name));
+  };
+
+  // What a folder delete takes along. A secret can go only when no session outside the folder uses it.
+  const contents = (folder: string): FolderContents => {
+    const sessions = tree.sessions.filter((s) =>
+      inFolder(s.folder ?? '', folder),
+    );
+    const outside = tree.sessions.filter((s) => !sessions.includes(s));
+    const refs = sessions
+      .flatMap((s) => s.credential ?? [])
+      .filter((ref, i, all) => !all.slice(0, i).some((r) => sameEntry(r, ref)));
+    const secrets = refs.filter(
+      (ref) =>
+        deletable(ref) && !outside.some((s) => sameEntry(s.credential, ref)),
+    ).length;
+    const aliases = sessions.map((s) => s.alias);
+    return {
+      folder,
+      aliases,
+      subfolders: folderPaths(tree).filter(
+        (f) => f !== folder && inFolder(f, folder),
+      ).length,
+      secrets,
+      kept: refs.length - secrets,
+      openTabs: tabs.filter(
+        (t) => typeof t.source === 'string' && aliases.includes(t.source),
+      ).length,
+    };
+  };
+
+  // The confirm keeps the sessions it counted, so a tree reload under it becomes a conflict instead of a bigger delete.
+  const askDeleteFolder = (folder: string) => {
+    const found = contents(folder);
+    setNotice(undefined);
+    if (found.aliases.length || found.subfolders) setDeletingFolder(found);
+    else void update(backend.deleteFolder(folder, [], false));
+  };
+
+  const moveIn = (alias: string) =>
+    backend
+      .moveIn(alias)
+      .then((next) => {
+        setTree(next);
+        setMovedIn(alias);
+      })
+      .catch(fail);
+
   // The key shows on the right; the accessible name stays the action alone.
   const menuItem = (
     label: string,
     run: () => void,
-    keys?: { aria: string; shown: string },
-    className?: string,
+    {
+      keys,
+      className,
+      disabled,
+    }: {
+      keys?: { aria: string; shown: string };
+      className?: string;
+      disabled?: boolean;
+    } = {},
   ) => (
     <li role="none" key={label}>
       <button
         role="menuitem"
         className={className}
+        disabled={disabled}
         aria-keyshortcuts={keys?.aria}
         onClick={() => {
           setTreeMenu(undefined);
@@ -321,20 +419,38 @@ export function App({
       </button>
     </li>
   );
-  const sessionMenu = (alias: string) => [
-    menuItem('Open Tab', () => openHost(alias), {
-      aria: 'Enter',
-      shown: 'Enter',
-    }),
-    menuItem('Edit', () => editSession(alias), { aria: 'F2', shown: 'F2' }),
-    menuItem('Duplicate', () => duplicateSession(alias)),
+  const key = (aria: string, shown = aria) => ({ keys: { aria, shown } });
+  const deleteItem = (run: () => void) => [
     <li key="separator" role="separator" />,
-    menuItem(
-      'Delete',
-      () => askDelete(alias),
-      { aria: 'Delete', shown: 'Del' },
-      'danger',
+    menuItem('Delete', run, { ...key('Delete', 'Del'), className: 'danger' }),
+  ];
+  const sessionMenu = (alias: string) => {
+    const openTab = menuItem('Open Tab', () => openHost(alias), key('Enter'));
+    if (tree.handWritten.includes(alias))
+      return [openTab, menuItem('Move into slop-term', () => moveIn(alias))];
+    const session = tree.sessions.find((s) => s.alias === alias);
+    return [
+      openTab,
+      menuItem('Edit', () => editSession(alias), key('F2')),
+      menuItem('Duplicate', () => duplicateSession(alias)),
+      menuItem('Move to…', () => moveTo({ alias }), key('F7')),
+      session?.alsoInConfig &&
+        menuItem('Comment out the copy in ~/.ssh/config', () =>
+          update(backend.commentOut(alias)),
+        ),
+      ...deleteItem(() => askDelete(alias)),
+    ];
+  };
+  const folderMenu = (folder: string) => [
+    menuItem('New SSH session here', () =>
+      openDialog({ form: newForm(folder) }),
     ),
+    // There are no Local shell sessions yet, only unsaved local shell Tabs.
+    menuItem('New local shell here', () => {}, { disabled: true }),
+    menuItem('New folder here', () => setEditing({ parent: folder })),
+    menuItem('Rename', () => rename(folder), key('F2')),
+    menuItem('Move to…', () => moveTo({ folder }), key('F7')),
+    ...deleteItem(() => askDeleteFolder(folder)),
   ];
 
   const answer = (tab: TabId, trust: boolean) => {
@@ -460,6 +576,8 @@ export function App({
           >
             {treeMenu.alias ? (
               sessionMenu(treeMenu.alias)
+            ) : treeMenu.folder !== undefined ? (
+              folderMenu(treeMenu.folder)
             ) : (
               <li role="none">
                 <button
@@ -510,6 +628,17 @@ export function App({
                     SSH session
                   </button>
                 </li>
+                <li role="none">
+                  <button
+                    role="menuitem"
+                    onClick={() => {
+                      setNewMenuOpen(false);
+                      setEditing({ parent: selectedFolder });
+                    }}
+                  >
+                    Folder
+                  </button>
+                </li>
               </ul>
             )}
           </div>
@@ -546,8 +675,18 @@ export function App({
           onSession={(alias, action) => {
             if (action === 'edit') editSession(alias);
             else if (action === 'delete') askDelete(alias);
+            else if (action === 'move') moveTo({ alias });
             else setTreeMenu({ ...action, alias });
           }}
+          onFolder={(folder, action) => {
+            if (action === 'rename') rename(folder);
+            else if (action === 'delete') askDeleteFolder(folder);
+            else if (action === 'move') moveTo({ folder });
+            else setTreeMenu({ ...action, folder });
+          }}
+          onMove={(item, to) => void update(backend.move(item, to))}
+          editing={editing}
+          onEditDone={finishEdit}
           onSelectFolder={setSelectedFolder}
           query={query}
         />
@@ -629,6 +768,47 @@ export function App({
             const { alias, read } = deleting;
             setTree(await backend.deleteSession(alias, read, deleteSecret));
             setDeleting(undefined);
+          }}
+        />
+      )}
+      {moving && (
+        <MoveTo
+          name={
+            'alias' in moving.item
+              ? moving.item.alias
+              : nameOf(moving.item.folder)
+          }
+          folders={folderPaths(tree).filter(
+            (f) =>
+              !('folder' in moving.item && inFolder(f, moving.item.folder)),
+          )}
+          current={moving.current}
+          onCancel={() => setMoving(undefined)}
+          onMove={(to) => {
+            setMoving(undefined);
+            if (to !== moving.current)
+              void update(backend.move(moving.item, to));
+          }}
+        />
+      )}
+      {deletingFolder && (
+        <DeleteFolder
+          contents={deletingFolder}
+          onCancel={() => setDeletingFolder(undefined)}
+          onDelete={async (deleteSecrets) => {
+            const { folder, aliases } = deletingFolder;
+            setTree(await backend.deleteFolder(folder, aliases, deleteSecrets));
+            setDeletingFolder(undefined);
+          }}
+        />
+      )}
+      {movedIn && (
+        <CommentOut
+          alias={movedIn}
+          onKeep={() => setMovedIn(undefined)}
+          onCommentOut={async () => {
+            setTree(await backend.commentOut(movedIn));
+            setMovedIn(undefined);
           }}
         />
       )}

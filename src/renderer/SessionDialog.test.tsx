@@ -220,7 +220,7 @@ describe('New and the command line', () => {
 });
 
 describe('Saved session menu', () => {
-  it('lists Open Tab, Edit, Duplicate and a red Delete with their keys, and edits with Edit or F2', async () => {
+  it('lists Open Tab, Edit, Duplicate, Move to… and a red Delete with their keys, and edits with Edit or F2', async () => {
     const { user } = await setup([{ alias: 'db' }], {
       db: saved('db', { port: '2222', options: ['Compression yes'] }),
     });
@@ -230,19 +230,21 @@ describe('Saved session menu', () => {
       'Open TabEnter',
       'EditF2',
       'Duplicate',
+      'Move to…F7',
       'DeleteDel',
     ]);
     expect(items.map((i) => i.getAttribute('aria-keyshortcuts'))).toEqual([
       'Enter',
       'F2',
       null,
+      'F7',
       'Delete',
     ]);
-    expect(items[3].parentElement!.previousElementSibling).toHaveAttribute(
+    expect(items[4].parentElement!.previousElementSibling).toHaveAttribute(
       'role',
       'separator',
     );
-    expect(items[3]).toHaveClass('danger');
+    expect(items[4]).toHaveClass('danger');
 
     await user.click(items[1]);
     expect(

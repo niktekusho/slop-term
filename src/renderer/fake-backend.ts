@@ -13,6 +13,12 @@ import {
   type Shell,
   type TabId,
 } from '../shared/ipc.ts';
+import {
+  inFolder,
+  joinFolder,
+  nameOf,
+  parentOf,
+} from '../shared/session-rules.ts';
 
 /** In-memory back end for UI tests: records every request and emits events on demand. */
 export class FakeBackend implements BackendClient {
@@ -171,6 +177,82 @@ export class FakeBackend implements BackendClient {
     this.requests.push({ method: 'testSession', args });
     await this.gate('testSession');
     return `test-${this.nextTab++}`;
+  }
+
+  private relocate(from: string, to: string) {
+    const swap = (p: string) =>
+      inFolder(p, from) ? to + p.slice(from.length) : p;
+    this.tree = {
+      ...this.tree,
+      folders: this.tree.folders.map(swap),
+      sessions: this.tree.sessions.map((s) =>
+        s.folder ? { ...s, folder: swap(s.folder) } : s,
+      ),
+    };
+    return this.tree;
+  }
+
+  async createFolder(...args: Parameters<Backend['createFolder']>) {
+    this.requests.push({ method: 'createFolder', args });
+    const folder = joinFolder(...args);
+    this.tree = { ...this.tree, folders: [...this.tree.folders, folder] };
+    return this.tree;
+  }
+
+  async renameFolder(...args: Parameters<Backend['renameFolder']>) {
+    this.requests.push({ method: 'renameFolder', args });
+    const [folder, name] = args;
+    return this.relocate(folder, joinFolder(parentOf(folder), name));
+  }
+
+  async move(...args: Parameters<Backend['move']>) {
+    this.requests.push({ method: 'move', args });
+    const [item, to] = args;
+    if ('folder' in item)
+      return this.relocate(item.folder, joinFolder(to, nameOf(item.folder)));
+    const sessions = this.tree.sessions.map((s) => {
+      if (s.alias !== item.alias) return s;
+      const { folder: _, ...rest } = s;
+      return to ? { ...rest, folder: to } : rest;
+    });
+    this.tree = { ...this.tree, sessions };
+    return this.tree;
+  }
+
+  async deleteFolder(...args: Parameters<Backend['deleteFolder']>) {
+    this.requests.push({ method: 'deleteFolder', args });
+    const [folder] = args;
+    this.tree = {
+      ...this.tree,
+      folders: this.tree.folders.filter((f) => !inFolder(f, folder)),
+      sessions: this.tree.sessions.filter(
+        (s) => !inFolder(s.folder ?? '', folder),
+      ),
+    };
+    return this.tree;
+  }
+
+  /** Leaves the namesake in `~/.ssh/config`, as the real back end does until `commentOut`. */
+  async moveIn(...args: Parameters<Backend['moveIn']>) {
+    this.requests.push({ method: 'moveIn', args });
+    const [alias] = args;
+    this.tree = {
+      ...this.tree,
+      sessions: [...this.tree.sessions, { alias, alsoInConfig: 1 }],
+      handWritten: this.tree.handWritten.filter((a) => a !== alias),
+    };
+    return this.tree;
+  }
+
+  async commentOut(...args: Parameters<Backend['commentOut']>) {
+    this.requests.push({ method: 'commentOut', args });
+    const sessions = this.tree.sessions.map((s) => {
+      if (s.alias !== args[0]) return s;
+      const { alsoInConfig: _, ...rest } = s;
+      return rest;
+    });
+    this.tree = { ...this.tree, sessions };
+    return this.tree;
   }
 
   async pickKeyFile() {

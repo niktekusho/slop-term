@@ -182,6 +182,38 @@ body,
   color: var(--warn);
 }
 
+.also {
+  display: flex;
+  color: var(--warn);
+}
+
+.folder-name {
+  box-sizing: border-box;
+  width: calc(100% - 8px - var(--depth, 0) * 14px);
+  height: 22px;
+  margin-left: calc(8px + var(--depth, 0) * 14px);
+  padding: 0 4px;
+  font: inherit;
+  color: inherit;
+  background: var(--canvas);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.folder-name[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.tree .drop > .row,
+.top-level.drop {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.menu button:disabled {
+  color: var(--faint);
+}
+
 .menu button:hover,
 .row:hover {
   background: var(--row-hover);
@@ -232,8 +264,8 @@ body,
   color: var(--fg);
 }
 
-/* A Hand-written host's lock stays visible left of the `+`. */
-.session:has(.lock) > .add {
+/* A lock or warning icon stays visible left of the `+`. */
+.session:has(> .row .lock, > .row .also) > .add {
   right: 26px;
 }
 
@@ -548,6 +580,33 @@ body,
 
 .confirm {
   width: 420px;
+}
+
+.move-to {
+  width: 360px;
+}
+
+.move-to input {
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.move-to [role='listbox'] {
+  max-height: 240px;
+  margin: 8px 0 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.move-to [role='option'] {
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: default;
+}
+
+.move-to [aria-selected='true'] {
+  background: var(--row-selected);
 }
 
 .dialog h2 {

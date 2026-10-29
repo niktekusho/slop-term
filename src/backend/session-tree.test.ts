@@ -158,3 +158,85 @@ describe('session tree', () => {
     ]);
   });
 });
+
+describe('Move into slop-term', () => {
+  const config = [
+    include,
+    '',
+    '# office',
+    'Host web1',
+    '  HostName 10.0.0.1',
+    '  # old port',
+    '  User me',
+    '',
+    'Host db',
+    '',
+  ].join('\r\n');
+
+  it('copies the block into the Managed config and leaves ~/.ssh/config alone until confirmed', async () => {
+    await start({
+      '.ssh/config': config,
+      '.ssh/slop-term.conf': 'Host api\n',
+    });
+    const tree = await harness.backend.moveIn('web1');
+    expect(await read('slop-term.conf')).toBe(
+      'Host api\n\nHost web1\n  HostName 10.0.0.1\n  # old port\n  User me\n',
+    );
+    expect(await read('config')).toBe(config);
+    expect(tree.handWritten).toEqual(['db']);
+    expect(tree.sessions).toEqual([
+      { alias: 'api' },
+      { alias: 'web1', alsoInConfig: 4 },
+    ]);
+  });
+
+  it('comments out the original under a marker once confirmed, deleting nothing', async () => {
+    await start({ '.ssh/config': config });
+    await harness.backend.moveIn('web1');
+    const tree = await harness.backend.commentOut('web1');
+    expect(await read('config')).toBe(
+      [
+        include,
+        '',
+        '# office',
+        '# moved to slop-term.conf',
+        '# Host web1',
+        '#   HostName 10.0.0.1',
+        '#   # old port',
+        '#   User me',
+        '',
+        'Host db',
+        '',
+      ].join('\r\n'),
+    );
+    expect(tree.sessions).toEqual([{ alias: 'web1' }]);
+  });
+
+  it('refuses to comment out a host the Managed config lacks, or to move one in twice', async () => {
+    await start({
+      '.ssh/config': config,
+      '.ssh/slop-term.conf': 'Host db\n',
+    });
+    await expect(harness.backend.commentOut('web1')).rejects.toThrow(
+      'web1 is not in slop-term.conf, so commenting it out would lose it.',
+    );
+    await expect(harness.backend.moveIn('db')).rejects.toThrow(
+      'db is already in slop-term.conf.',
+    );
+    expect(await read('config')).toBe(config);
+    expect(await read('slop-term.conf')).toBe('Host db\n');
+  });
+
+  it('marks a Managed alias that ~/.ssh/config also defines, as a synced move from another machine leaves it', async () => {
+    const tree = await start({
+      '.ssh/config': config,
+      '.ssh/slop-term.conf': 'Host db\n  HostName db.lan\n',
+    });
+    expect(tree.sessions).toEqual([{ alias: 'db', alsoInConfig: 9 }]);
+    expect(tree.handWritten).toEqual(['web1']);
+    await harness.backend.commentOut('db');
+    expect(await read('config')).toBe(
+      config.replace('Host db', '# moved to slop-term.conf\r\n# Host db'),
+    );
+  });
+});

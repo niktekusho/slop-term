@@ -21,6 +21,7 @@ import { HostKeyPrompt } from './HostKeyPrompt.tsx';
 import { SecretPrompt } from './SecretPrompt.tsx';
 import {
   aliasProblem,
+  deletable,
   jumpWarning,
   optionKey,
   optionProblem,
@@ -89,7 +90,7 @@ function SecretOffer({
         secret, so it stays.
       </p>
     );
-  if (credential.provider !== 'keychain') return null;
+  if (!deletable(credential)) return null;
   return (
     <label className="check">
       <input
@@ -214,7 +215,16 @@ function AttachSecret({
   );
 }
 
-function Modal({
+export const openTabsNote = (count: number) =>
+  count > 0 && (
+    <p>
+      {count === 1
+        ? '1 Tab is open. It stays open.'
+        : `${count} Tabs are open. They stay open.`}
+    </p>
+  );
+
+export function Modal({
   label,
   role = 'dialog',
   className,
@@ -651,13 +661,7 @@ export function DeleteSession({
       <h2>
         Delete Saved session <code>{alias}</code>?
       </h2>
-      {openTabs > 0 && (
-        <p>
-          {openTabs === 1
-            ? '1 Tab is open. It stays open.'
-            : `${openTabs} Tabs are open. They stay open.`}
-        </p>
-      )}
+      {openTabsNote(openTabs)}
       {credential && (
         <SecretOffer
           others={sharing(tree, credential, alias)}

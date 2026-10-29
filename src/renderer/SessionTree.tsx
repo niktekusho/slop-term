@@ -1,5 +1,18 @@
-import { Fragment, useState, type CSSProperties, type ReactNode } from 'react';
+import {
+  Fragment,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type DragEvent,
+  type ReactNode,
+} from 'react';
 import type { SessionTree as Model, Shell, TabId } from '../shared/ipc.ts';
+import {
+  folderProblem,
+  inFolder,
+  joinFolder,
+} from '../shared/session-rules.ts';
 
 /** `source` is the alias an SSH Tab opened, or the shell of a local one. */
 export type Tab = {
@@ -67,6 +80,10 @@ const lock = (
     )}
   </span>
 );
+const warnIcon = icon(
+  'warn-icon',
+  <path d="M8 1.5l6.5 12h-13zM8 6v3.5M8 11.5v.5" />,
+);
 
 // A session's folder shows even when the Sidecar folder list misses it. Folders and sessions come out sorted.
 function nest(model: Model, keep: (name: string) => boolean): Folder {
@@ -98,6 +115,61 @@ function nest(model: Model, keep: (name: string) => boolean): Folder {
 
 const hasSessions = (f: Folder): boolean =>
   f.sessions.length > 0 || f.folders.some(hasSessions);
+
+/** Every folder path in tree order, including folders only a session's folder names. */
+export function folderPaths(model: Model) {
+  const walk = (f: Folder): string[] => [f.path, ...f.folders.flatMap(walk)];
+  return nest(model, () => true).folders.flatMap(walk);
+}
+
+export type TreeItem = { alias: string } | { folder: string };
+
+const folderKeys = { F2: 'rename', Delete: 'delete', F7: 'move' } as const;
+
+/** A folder row in edit mode. Enter or blur commits a valid name; Esc cancels. */
+function FolderName({
+  initial,
+  siblings,
+  level,
+  onDone,
+}: {
+  initial: string;
+  siblings: string[];
+  level: number;
+  onDone(name?: string): void;
+}) {
+  const [name, setName] = useState(initial);
+  // Enter, Esc and the blur that follows them would each end the edit.
+  const done = useRef(false);
+  const problem = folderProblem(name, siblings);
+  const finish = (result?: string) => {
+    if (done.current) return;
+    done.current = true;
+    onDone(result);
+  };
+  const commit = () => problem || finish(name.trim());
+  return (
+    <input
+      className="folder-name"
+      style={depth(level)}
+      aria-label="Folder name"
+      autoFocus
+      spellCheck={false}
+      value={name}
+      aria-invalid={!!problem}
+      title={problem}
+      onChange={(e) => setName(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') commit();
+        else if (e.key === 'Escape') {
+          e.stopPropagation();
+          finish();
+        }
+      }}
+    />
+  );
+}
 
 /** Sorts Tabs under the hosts they came from. Unsaved holds local shells, then Tabs whose host left the tree. */
 function place(model: Model, tabs: Tab[]) {
@@ -213,6 +285,10 @@ export function SessionTree({
   onSelectTab,
   onOpenHost,
   onSession,
+  onFolder,
+  onMove,
+  editing,
+  onEditDone,
   onSelectFolder,
   query,
 }: {
@@ -222,16 +298,78 @@ export function SessionTree({
   mac: boolean;
   onSelectTab(id: TabId): void;
   onOpenHost(alias: string): void;
-  /** F2, Delete or a right-click at `menu` on a Saved session's row. */
+  /** F2, Delete, F7 or a right-click at a position on a host's row. A Hand-written host sends only the right-click. */
   onSession(
     alias: string,
-    action: 'edit' | 'delete' | { left: number; top: number },
+    action: 'edit' | 'delete' | 'move' | { left: number; top: number },
   ): void;
+  onFolder(
+    folder: string,
+    action: 'rename' | 'delete' | 'move' | { left: number; top: number },
+  ): void;
+  /** A drag and drop. '' is the top level. */
+  onMove(item: TreeItem, to: string): void;
+  /** A new folder in `parent`, or a rename of `folder`. */
+  editing?: { parent: string; folder?: string };
+  /** The name to commit, or none when the user cancelled. */
+  onEditDone(name?: string): void;
   /** The folder of the row that last had focus, where "New" creates. */
   onSelectFolder(folder: string): void;
   query: string;
 }) {
   const [collapsed, setCollapsed] = useState(new Set<string>());
+  const dragged = useRef<TreeItem>(undefined);
+  const list = useRef<HTMLUListElement>(null);
+  // The edited row unmounts with its field, and a new or renamed folder's row appears only after the back end answers.
+  const refocus = useRef<string>(undefined);
+  useEffect(() => {
+    const target = [
+      ...(list.current?.querySelectorAll<HTMLElement>('[data-folder]') ?? []),
+    ].find((el) => el.dataset.folder === refocus.current);
+    if (!target) return;
+    refocus.current = undefined;
+    target.focus();
+  });
+  const editDone = (name?: string) => {
+    refocus.current =
+      name === undefined
+        ? (editing?.folder ?? editing?.parent)
+        : joinFolder(editing!.parent, name);
+    onEditDone(name);
+  };
+  const [dropTarget, setDropTarget] = useState<string>();
+  const alsoIn = new Map(model.sessions.map((s) => [s.alias, s.alsoInConfig]));
+
+  // Folder rows and the top-level list take drops. The deepest folder under the pointer wins.
+  const dropProps = (to: string) => {
+    const allowed = () => {
+      const item = dragged.current;
+      return !!item && !('folder' in item && inFolder(to, item.folder));
+    };
+    return {
+      onDragOver(e: DragEvent) {
+        e.stopPropagation();
+        if (!allowed()) return;
+        e.preventDefault();
+        setDropTarget(to);
+      },
+      onDrop(e: DragEvent) {
+        e.stopPropagation();
+        e.preventDefault();
+        if (allowed()) onMove(dragged.current!, to);
+        dragged.current = undefined;
+        setDropTarget(undefined);
+      },
+    };
+  };
+  const dragProps = (item: TreeItem) => ({
+    draggable: true,
+    onDragStart: () => (dragged.current = item),
+    onDragEnd: () => {
+      dragged.current = undefined;
+      setDropTarget(undefined);
+    },
+  });
   const keep = (name: string) =>
     name.toLowerCase().includes(query.toLowerCase());
   const root = nest(model, keep);
@@ -262,7 +400,7 @@ export function SessionTree({
     />
   );
 
-  // `folder` is undefined for a Hand-written host, which is read-only: only Enter works on it.
+  // `folder` is undefined for a Hand-written host, which is read-only: only Enter and its menu work on it.
   const sessionRow = (
     alias: string,
     level: number,
@@ -272,6 +410,7 @@ export function SessionTree({
       <button
         className="row"
         style={depth(level)}
+        {...(folder !== undefined && dragProps({ alias }))}
         onFocus={() => folder !== undefined && onSelectFolder(folder)}
         onDoubleClick={() => onOpenHost(alias)}
         onKeyDown={(e) => {
@@ -279,9 +418,9 @@ export function SessionTree({
           else if (folder === undefined) return;
           else if (e.key === 'F2') onSession(alias, 'edit');
           else if (e.key === 'Delete') onSession(alias, 'delete');
+          else if (e.key === 'F7') onSession(alias, 'move');
         }}
         onContextMenu={(e) => {
-          if (folder === undefined) return;
           e.preventDefault();
           e.stopPropagation();
           onSession(alias, { left: e.clientX, top: e.clientY });
@@ -291,6 +430,14 @@ export function SessionTree({
         <span className="edge ssh" />
         <span className="name">{alias}</span>
         {folder === undefined && lock}
+        {alsoIn.get(alias) && (
+          <span
+            className="also"
+            title={`Also defined in ~/.ssh/config line ${alsoIn.get(alias)}`}
+          >
+            {warnIcon}
+          </span>
+        )}
       </button>
       <button
         className="add"
@@ -306,27 +453,70 @@ export function SessionTree({
     </li>
   );
 
+  const newFolder = (parent: Folder, level: number) =>
+    editing &&
+    editing.folder === undefined &&
+    editing.parent === parent.path && (
+      <li key="(new folder)">
+        <FolderName
+          initial=""
+          siblings={parent.folders.map((f) => f.name)}
+          level={level}
+          onDone={editDone}
+        />
+      </li>
+    );
+
   // While filtering, every match shows: collapsed folders open and empty ones hide.
   const folderRows = (folders: Folder[], level: number) =>
     folders
       .filter((f) => !query || hasSessions(f))
       .map((f) => {
-        const open = !!query || !collapsed.has(f.path);
+        const open =
+          !!query || !collapsed.has(f.path) || editing?.parent === f.path;
         return (
-          <li key={f.path}>
-            <button
-              className="row"
-              style={depth(level)}
-              aria-expanded={open}
-              onFocus={() => onSelectFolder(f.path)}
-              onClick={() => query || toggle(f.path)}
-            >
-              {chevron}
-              {folderIcon}
-              <span className="name">{f.name}</span>
-            </button>
+          <li
+            key={f.path}
+            className={dropTarget === f.path ? 'drop' : undefined}
+            {...dropProps(f.path)}
+          >
+            {editing?.folder === f.path ? (
+              <FolderName
+                initial={f.name}
+                siblings={folders.filter((o) => o !== f).map((o) => o.name)}
+                level={level}
+                onDone={editDone}
+              />
+            ) : (
+              <button
+                className="row"
+                style={depth(level)}
+                aria-expanded={open}
+                {...dragProps({ folder: f.path })}
+                data-folder={f.path}
+                onFocus={() => onSelectFolder(f.path)}
+                onClick={() => query || toggle(f.path)}
+                onKeyDown={(e) => {
+                  if (Object.hasOwn(folderKeys, e.key))
+                    onFolder(
+                      f.path,
+                      folderKeys[e.key as keyof typeof folderKeys],
+                    );
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onFolder(f.path, { left: e.clientX, top: e.clientY });
+                }}
+              >
+                {chevron}
+                {folderIcon}
+                <span className="name">{f.name}</span>
+              </button>
+            )}
             {open && (
               <ul>
+                {newFolder(f, level + 1)}
                 {folderRows(f.folders, level + 1)}
                 {f.sessions.map((alias) =>
                   sessionRow(alias, level + 1, f.path),
@@ -355,8 +545,13 @@ export function SessionTree({
           </ul>
         </section>
       )}
-      <ul>
+      <ul
+        ref={list}
+        className={dropTarget === '' ? 'top-level drop' : 'top-level'}
+        {...dropProps('')}
+      >
         {root.sessions.map((alias) => sessionRow(alias, 0, ''))}
+        {newFolder(root, 0)}
         {folderRows(root.folders, 0)}
       </ul>
     </>

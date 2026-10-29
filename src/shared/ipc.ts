@@ -23,6 +23,8 @@ export type SessionTree = {
     alias: string;
     folder?: string;
     credential?: CredentialReference;
+    /** The line of `~/.ssh/config` that also defines this alias. */
+    alsoInConfig?: number;
   }[];
   handWritten: string[];
   warnings: string[];
@@ -158,6 +160,28 @@ export interface Backend {
    * Its checklist comes as `test` events. Its questions come as a Tab's do, under the returned id; `close` stops it.
    */
   testSession(form: SessionForm, secret?: SecretChange['set']): Promise<TabId>;
+  /** Folder paths join their names with `/`; '' is the top level. */
+  createFolder(parent: string, name: string): Promise<SessionTree>;
+  renameFolder(folder: string, name: string): Promise<SessionTree>;
+  /** Moves a Saved session or a folder, with everything in it, into `to`. */
+  move(
+    item: { alias: string } | { folder: string },
+    to: string,
+  ): Promise<SessionTree>;
+  /**
+   * Deletes the folder, its subfolders and their Saved sessions, writing each file once.
+   * `aliases` are the sessions the user agreed to delete: any other set is a conflict.
+   * `deleteSecrets` deletes their saved secrets that no session outside the folder uses.
+   */
+  deleteFolder(
+    folder: string,
+    aliases: string[],
+    deleteSecrets: boolean,
+  ): Promise<SessionTree>;
+  /** Copies a Hand-written host's block from `~/.ssh/config` into the Managed config. */
+  moveIn(alias: string): Promise<SessionTree>;
+  /** Comments out a Managed host's copy in `~/.ssh/config` under a `# moved to slop-term.conf` marker. */
+  commentOut(alias: string): Promise<SessionTree>;
 }
 
 // Served by the main process: native dialogs exist only there.
@@ -254,6 +278,12 @@ const methods: { [M in keyof Backend]: true } = {
   deleteSession: true,
   sessionDefaults: true,
   testSession: true,
+  createFolder: true,
+  renameFolder: true,
+  move: true,
+  deleteFolder: true,
+  moveIn: true,
+  commentOut: true,
 };
 
 export function serve(backend: Backend, send: (message: Message) => void) {
