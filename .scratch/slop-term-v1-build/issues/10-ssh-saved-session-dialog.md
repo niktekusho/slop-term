@@ -6,7 +6,7 @@
 
 **Blocked by:** 04 — Session tree from SSH config; 08 — Password login and keychain provider
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] "New" beside the tree filter offers SSH session (Local shell session and Folder come in later tickets) and creates it in the selected row's folder. Right-click on a Saved session shows Open Tab (Enter), Edit (F2), Duplicate, Delete (Del, red, after a separator) with their keys.
 - [ ] Dialog (~780 px): Alias, Folder and Colour rows (Colour arrives in ticket 14), a Connect row `ssh -p [Port] -i [IdentityFile] […] [User]@[HostName]` with inline inputs that show their `ssh -G` value in grey when empty, `…` to pick a key file, and the note "Typing `ssh <alias>` in a shell runs this command."
