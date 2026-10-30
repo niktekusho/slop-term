@@ -4,6 +4,10 @@
 
 **Local shell session**: A Saved session that opens a shell on this machine instead of an SSH connection: a shell kind, a WSL distro for WSL, an optional start folder and an optional command to run. It syncs like any Saved session, but opens only on a machine that has its shell.
 
+**Session kind**: Whether a Saved session is an SSH session or a Local shell session. It is fixed when the session is created.
+
+**Shell kind**: The shell a Local shell session or unsaved Tab runs: `pwsh`, `powershell`, `cmd`, `wsl`, `zsh` or `bash`. The user can change it in an edit.
+
 **Session colour**: An optional colour, picked from a fixed list, that the user gives a Saved session to recognise it at a glance, for example red for production hosts. Its Tabs show it. It is only a visual tag and changes nothing about how the session behaves.
 _Avoid_: tab colour, sensitive flag
 

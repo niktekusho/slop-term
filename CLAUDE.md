@@ -6,6 +6,8 @@ Test seams are fixed in the spec's Testing Decisions: write the first failing te
 
 Check with `pnpm lint` while working and run `pnpm lint:fix` once before the commit: a format mid-session rewrites files already in context.
 
+Revert an experiment in a committed file with `git checkout -- <file>`: an Edit back can leave part of the change.
+
 Review uncommitted work with `git diff HEAD`. A `<fixed-point>...HEAD` diff is empty until the commit.
 
 Run `git config core.hooksPath .githooks` once per clone to enable the pre-commit check.

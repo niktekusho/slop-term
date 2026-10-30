@@ -30,4 +30,5 @@ Back end: `src/backend/local-shell-sessions.test.ts`. UI: `src/renderer/LocalShe
 - Command exit keeps the Tab: back end "reports the command's exit code and runs it again on restart"; UI "opens a Tab under the session, and a Tab running a command stays after exit 0".
 - Save on an unsaved Tab: "asks for a name and folder and moves the Tab under its new session". The app never creates Saved sessions on its own: only the dialog's Save sends `saveLocalShell`. No test.
 - Unavailable: back end "refuses a session whose shell or WSL distro this machine lacks"; UI "dims a session whose shell this machine lacks: n/a, no +, and it does not open", "dims a WSL session whose distro this machine lacks", "still moves and edits an unavailable session".
+- Platform facts checked on Windows 11 with WSL Ubuntu: `wsl.exe --cd ~/.cache -- pwd` prints `/home/<user>/.cache`, so `--cd` takes `~/…`. `wsl.exe -- "echo a b"` fails with `echo a b: command not found`, so the command goes to WSL as raw command-line text.
 - New and folder menu: "offers Local shell session in New and New local shell here in a folder menu, in that folder".
