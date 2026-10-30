@@ -67,7 +67,13 @@ export async function startBackend(
         child.kill();
         await exited;
       }
-      await rm(home, { recursive: true, force: true });
+      // Windows ends a killed back end's shells a moment later, and until then each holds its start folder open.
+      await rm(home, {
+        recursive: true,
+        force: true,
+        maxRetries: 10,
+        retryDelay: 200,
+      });
     },
   };
 }

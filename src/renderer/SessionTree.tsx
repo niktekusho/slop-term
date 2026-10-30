@@ -12,12 +12,14 @@ import {
   folderProblem,
   inFolder,
   joinFolder,
+  shellMissing,
 } from '../shared/session-rules.ts';
 
-/** `source` is the alias an SSH Tab opened, or the shell of a local one. */
+/** `source` is the Saved session or Hand-written host a Tab opened, or the shell of an unsaved one. */
 export type Tab = {
   id: TabId;
   source: string | Shell;
+  local?: true;
   folder?: string;
   title?: string;
   address?: string;
@@ -106,6 +108,8 @@ function nest(model: Model, keep: (name: string) => boolean): Folder {
   for (const path of model.folders) folder(path);
   for (const { alias, folder: path } of model.sessions)
     if (keep(alias)) folder(path ?? '').sessions.push(alias);
+  for (const { name, folder: path } of model.localShells)
+    if (keep(name)) folder(path).sessions.push(name);
   for (const node of nodes.values()) {
     node.folders.sort((a, b) => byName(a.name, b.name));
     node.sessions.sort(byName);
@@ -176,6 +180,7 @@ function place(model: Model, tabs: Tab[]) {
   const hosts = new Set([
     ...model.sessions.map((s) => s.alias),
     ...model.handWritten,
+    ...model.localShells.map((s) => s.name),
   ]);
   const under = new Map<string, Tab[]>();
   const shells: Tab[] = [];
@@ -283,7 +288,7 @@ export function SessionTree({
   active,
   mac,
   onSelectTab,
-  onOpenHost,
+  onOpenSession,
   onSession,
   onFolder,
   onMove,
@@ -291,13 +296,15 @@ export function SessionTree({
   onEditDone,
   onSelectFolder,
   query,
+  shells,
 }: {
   model: Model;
   tabs: Tab[];
   active: TabId | undefined;
   mac: boolean;
   onSelectTab(id: TabId): void;
-  onOpenHost(alias: string): void;
+  /** Never sent for a Local shell session this machine can't open. */
+  onOpenSession(alias: string): void;
   /** F2, Delete, F7 or a right-click at a position on a host's row. A Hand-written host sends only the right-click. */
   onSession(
     alias: string,
@@ -316,6 +323,8 @@ export function SessionTree({
   /** The folder of the row that last had focus, where "New" creates. */
   onSelectFolder(folder: string): void;
   query: string;
+  /** The shells this machine has; none until the back end answers, which counts every Local shell session as available. */
+  shells?: Shell[];
 }) {
   const [collapsed, setCollapsed] = useState(new Set<string>());
   const dragged = useRef<TreeItem>(undefined);
@@ -339,6 +348,7 @@ export function SessionTree({
   };
   const [dropTarget, setDropTarget] = useState<string>();
   const alsoIn = new Map(model.sessions.map((s) => [s.alias, s.alsoInConfig]));
+  const locals = new Map(model.localShells.map((s) => [s.name, s]));
 
   // Folder rows and the top-level list take drops. The deepest folder under the pointer wins.
   const dropProps = (to: string) => {
@@ -405,53 +415,68 @@ export function SessionTree({
     alias: string,
     level: number,
     folder: string | undefined,
-  ) => (
-    <li key={alias} className="session">
-      <button
-        className="row"
-        style={depth(level)}
-        {...(folder !== undefined && dragProps({ alias }))}
-        onFocus={() => folder !== undefined && onSelectFolder(folder)}
-        onDoubleClick={() => onOpenHost(alias)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') onOpenHost(alias);
-          else if (folder === undefined) return;
-          else if (e.key === 'F2') onSession(alias, 'edit');
-          else if (e.key === 'Delete') onSession(alias, 'delete');
-          else if (e.key === 'F7') onSession(alias, 'move');
-        }}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          onSession(alias, { left: e.clientX, top: e.clientY });
-        }}
-      >
-        <span className="slot" />
-        <span className="edge ssh" />
-        <span className="name">{alias}</span>
-        {folder === undefined && lock}
-        {alsoIn.get(alias) && (
-          <span
-            className="also"
-            title={`Also defined in ~/.ssh/config line ${alsoIn.get(alias)}`}
+  ) => {
+    const local = locals.get(alias);
+    const unavailable = !!local && !!shells && shellMissing(local, shells);
+    const open = () => unavailable || onOpenSession(alias);
+    return (
+      <li key={alias} className="session">
+        <button
+          className={unavailable ? 'row unavailable' : 'row'}
+          style={depth(level)}
+          {...(folder !== undefined && dragProps({ alias }))}
+          onFocus={() => folder !== undefined && onSelectFolder(folder)}
+          onDoubleClick={open}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') open();
+            else if (folder === undefined) return;
+            else if (e.key === 'F2') onSession(alias, 'edit');
+            else if (e.key === 'Delete') onSession(alias, 'delete');
+            else if (e.key === 'F7') onSession(alias, 'move');
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onSession(alias, { left: e.clientX, top: e.clientY });
+          }}
+        >
+          <span className="slot" />
+          <span className={local ? 'edge local' : 'edge ssh'} />
+          <span className="name">{alias}</span>
+          {unavailable && (
+            <>
+              {' '}
+              <span className="na" title="not available on this machine">
+                n/a
+              </span>
+            </>
+          )}
+          {folder === undefined && lock}
+          {alsoIn.get(alias) && (
+            <span
+              className="also"
+              title={`Also defined in ~/.ssh/config line ${alsoIn.get(alias)}`}
+            >
+              {warnIcon}
+            </span>
+          )}
+        </button>
+        {!unavailable && (
+          <button
+            className="add"
+            aria-label={`Open another Tab of ${alias}`}
+            title="Open another Tab"
+            onClick={() => onOpenSession(alias)}
           >
-            {warnIcon}
-          </span>
+            +
+          </button>
         )}
-      </button>
-      <button
-        className="add"
-        aria-label={`Open another Tab of ${alias}`}
-        title="Open another Tab"
-        onClick={() => onOpenHost(alias)}
-      >
-        +
-      </button>
-      {under.has(alias) && (
-        <ul>{under.get(alias)!.map((tab) => tabRow(tab, level + 1))}</ul>
-      )}
-    </li>
-  );
+        {under.has(alias) && (
+          <ul>{under.get(alias)!.map((tab) => tabRow(tab, level + 1))}</ul>
+        )}
+      </li>
+    );
+  };
 
   const newFolder = (parent: Folder, level: number) =>
     editing &&

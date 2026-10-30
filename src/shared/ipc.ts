@@ -1,5 +1,15 @@
+export const shellKinds = [
+  'pwsh',
+  'powershell',
+  'cmd',
+  'wsl',
+  'zsh',
+  'bash',
+] as const;
+export type ShellKind = (typeof shellKinds)[number];
+/** A shell this machine has. */
 export type Shell =
-  | { kind: 'pwsh' | 'powershell' | 'cmd' | 'zsh' | 'bash' }
+  | { kind: Exclude<ShellKind, 'wsl'> }
   | { kind: 'wsl'; distro: string };
 export type TabId = string;
 export type TerminalSize = { cols: number; rows: number };
@@ -27,6 +37,7 @@ export type SessionTree = {
     alsoInConfig?: number;
   }[];
   handWritten: string[];
+  localShells: LocalShellForm[];
   warnings: string[];
 };
 
@@ -34,6 +45,7 @@ export const emptyTree: SessionTree = {
   folders: [],
   sessions: [],
   handWritten: [],
+  localShells: [],
   warnings: [],
 };
 
@@ -80,6 +92,18 @@ export type SessionForm = {
 /** `read` is the session as read now, which a save or delete checks for conflicts. */
 export type SavedSession = SessionForm & { read: string };
 
+/** A Local shell session. An empty string means unset: the WSL default distro, the home folder, no command, the top level. */
+export type LocalShellForm = {
+  name: string;
+  folder: string;
+  kind: ShellKind;
+  distro: string;
+  startFolder: string;
+  command: string;
+};
+
+export type SavedLocalShell = LocalShellForm & { read: string };
+
 /** `set` saves a new secret to the keychain and points the session at it. `drop` deletes an entry the form removed, unless another session uses it. */
 export type SecretChange = {
   set?: { kind: CredentialReference['kind']; secret: string };
@@ -115,6 +139,8 @@ export type SecretQuestion = {
 export interface Backend {
   listShells(): Promise<Shell[]>;
   openLocalShell(shell: Shell): Promise<TabId>;
+  /** Rejects a Local shell session whose shell or distro this machine lacks. */
+  openShellSession(name: string): Promise<TabId>;
   /** Resolves once the Tab exists; connecting, the host key question and login follow as events. */
   openSsh(alias: string): Promise<TabId>;
   /** `true` trusts an unknown key, or replaces a changed one. */
@@ -160,17 +186,24 @@ export interface Backend {
    * Its checklist comes as `test` events. Its questions come as a Tab's do, under the returned id; `close` stops it.
    */
   testSession(form: SessionForm, secret?: SecretChange['set']): Promise<TabId>;
+  getLocalShell(name: string): Promise<SavedLocalShell>;
+  /** Creates the session, or replaces `edit.name` after checking it is unchanged since `edit.read`. */
+  saveLocalShell(
+    form: LocalShellForm,
+    edit?: { name: string; read: string },
+  ): Promise<SessionTree>;
+  deleteLocalShell(name: string, read: string): Promise<SessionTree>;
   /** Folder paths join their names with `/`; '' is the top level. */
   createFolder(parent: string, name: string): Promise<SessionTree>;
   renameFolder(folder: string, name: string): Promise<SessionTree>;
-  /** Moves a Saved session or a folder, with everything in it, into `to`. */
+  /** Moves a Saved session (an SSH alias or a Local shell session name) or a folder, with everything in it, into `to`. */
   move(
     item: { alias: string } | { folder: string },
     to: string,
   ): Promise<SessionTree>;
   /**
    * Deletes the folder, its subfolders and their Saved sessions, writing each file once.
-   * `aliases` are the sessions the user agreed to delete: any other set is a conflict.
+   * `aliases` are the sessions the user agreed to delete, SSH and local shell: any other set is a conflict.
    * `deleteSecrets` deletes their saved secrets that no session outside the folder uses.
    */
   deleteFolder(
@@ -261,6 +294,7 @@ export type Message =
 const methods: { [M in keyof Backend]: true } = {
   listShells: true,
   openLocalShell: true,
+  openShellSession: true,
   openSsh: true,
   answerHostKey: true,
   answerSecret: true,
@@ -278,6 +312,9 @@ const methods: { [M in keyof Backend]: true } = {
   deleteSession: true,
   sessionDefaults: true,
   testSession: true,
+  getLocalShell: true,
+  saveLocalShell: true,
+  deleteLocalShell: true,
   createFolder: true,
   renameFolder: true,
   move: true,

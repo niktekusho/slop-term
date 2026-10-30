@@ -42,7 +42,14 @@ import {
   nameOf,
   parentOf,
   sameEntry,
+  shellMissing,
+  takenNames,
 } from '../shared/session-rules.ts';
+import {
+  LocalShellDialog,
+  newLocalForm,
+  type LocalDialogStart,
+} from './LocalShellDialog.tsx';
 import { terminalOptions } from './look.ts';
 import { HostKeyPrompt } from './HostKeyPrompt.tsx';
 import { SecretPrompt } from './SecretPrompt.tsx';
@@ -81,7 +88,7 @@ export function App({
   backend: BackendClient;
   mac: boolean;
 }) {
-  const [shells, setShells] = useState<Shell[]>([]);
+  const [shells, setShells] = useState<Shell[]>();
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [active, setActive] = useState<TabId>();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -95,10 +102,12 @@ export function App({
   }>();
   const [selectedFolder, setSelectedFolder] = useState('');
   const [dialog, setDialog] = useState<DialogStart>();
+  const [localDialog, setLocalDialog] = useState<LocalDialogStart>();
   const [deleting, setDeleting] = useState<{
     alias: string;
     read: string;
     credential?: CredentialReference;
+    local?: true;
   }>();
   const [editing, setEditing] = useState<{ parent: string; folder?: string }>();
   const [moving, setMoving] = useState<{ item: TreeItem; current: string }>();
@@ -106,7 +115,12 @@ export function App({
   const [movedIn, setMovedIn] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const modal =
-    !!dialog || !!deleting || !!moving || !!deletingFolder || !!movedIn;
+    !!dialog ||
+    !!localDialog ||
+    !!deleting ||
+    !!moving ||
+    !!deletingFolder ||
+    !!movedIn;
   const [reconnectingAll, setReconnectingAll] = useState(false);
   const treeMenuRef = useRef<HTMLUListElement>(null);
   const [profiling, setProfiling] = useState(false);
@@ -148,6 +162,8 @@ export function App({
   // A halted Tab ignores every key but R, and a `final` one ignores R too.
   const halted = useRef(new Map<TabId, 'exited' | 'dropped' | 'final'>());
   const loggedIn = useRef(new Set<TabId>());
+  // A Tab that ran a session's command stays after exit 0, so its output can still be read.
+  const keepAfterExit = useRef(new Set<TabId>());
   const reconnecting = useRef(new Set<TabId>());
   // "Reconnect all" waits on each Tab's connected or dropped event before it starts the next.
   const settled = useRef(new Map<TabId, () => void>());
@@ -196,6 +212,7 @@ export function App({
       backend.close(id);
       halted.current.delete(id);
       loggedIn.current.delete(id);
+      keepAfterExit.current.delete(id);
       reconnecting.current.delete(id);
       settle(id);
       terms.current.get(id)?.dispose();
@@ -253,7 +270,8 @@ export function App({
           halted.current.set(tab, final ? 'final' : 'dropped');
           updateTab(tab, { disconnected: final ? 'final' : 'retry' });
           settle(tab);
-        } else if (event.code === 0) removeTab(event.tab);
+        } else if (event.code === 0 && !keepAfterExit.current.has(event.tab))
+          removeTab(event.tab);
         else {
           halted.current.set(event.tab, 'exited');
           term.write(`\r\nprocess exited with code ${event.code}\r\n`);
@@ -264,7 +282,8 @@ export function App({
   );
 
   const addTab = useCallback(
-    (id: TabId, source: Tab['source']) => {
+    (id: TabId, source: Tab['source'], local?: { command: boolean }) => {
+      if (local?.command) keepAfterExit.current.add(id);
       const term = new Terminal(options);
       term.attachCustomKeyEventHandler((e) => !appShortcut(e, mac));
       term.onData((data) => {
@@ -274,50 +293,89 @@ export function App({
       });
       term.onResize((size) => backend.resize(id, size));
       terms.current.set(id, term);
-      setTabs((tabs) => [...tabs, { id, source }]);
+      setTabs((tabs) => [
+        ...tabs,
+        { id, source, ...(local && { local: true as const }) },
+      ]);
       setActive(id);
     },
     [backend, mac, options, restart],
   );
 
   const open = useCallback(
-    async (shell: Shell) => addTab(await backend.openLocalShell(shell), shell),
+    async (shell: Shell) =>
+      addTab(await backend.openLocalShell(shell), shell, { command: false }),
     [backend, addTab],
   );
 
-  const openHost = useCallback(
-    async (alias: string) => addTab(await backend.openSsh(alias), alias),
-    [backend, addTab],
-  );
-
-  const taken = () => [
-    ...tree.sessions.map((s) => s.alias),
-    ...tree.handWritten,
-  ];
   const fail = (e: Error) => setNotice(e.message);
+  const localOf = (name: string) =>
+    tree.localShells.find((s) => s.name === name);
+  const openSession = useCallback(
+    async (name: string) => {
+      const local = tree.localShells.find((s) => s.name === name);
+      if (!local) return addTab(await backend.openSsh(name), name);
+      // The back end refuses a session this machine can't open.
+      await backend
+        .openShellSession(name)
+        .then((id) => addTab(id, name, { command: !!local.command }), fail);
+    },
+    [backend, addTab, tree],
+  );
+
+  const taken = () => takenNames(tree);
   const openDialog = (start: DialogStart) => {
     setNotice(undefined);
     setDialog(start);
   };
+  const openLocalDialog = (start: LocalDialogStart) => {
+    setNotice(undefined);
+    setLocalDialog(start);
+  };
   const editSession = (alias: string) =>
-    backend
-      .getSession(alias)
-      .then(({ read, ...form }) => openDialog({ form, edit: { alias, read } }))
-      .catch(fail);
+    localOf(alias)
+      ? backend
+          .getLocalShell(alias)
+          .then(({ read, ...form }) =>
+            openLocalDialog({ form, edit: { name: alias, read } }),
+          )
+          .catch(fail)
+      : backend
+          .getSession(alias)
+          .then(({ read, ...form }) =>
+            openDialog({ form, edit: { alias, read } }),
+          )
+          .catch(fail);
   const duplicateSession = (alias: string) =>
-    backend
-      .getSession(alias)
-      .then((session) => {
-        const { read: _, ...form } = session;
-        openDialog({ form: { ...form, alias: freeAlias(alias, taken()) } });
-      })
-      .catch(fail);
+    localOf(alias)
+      ? backend
+          .getLocalShell(alias)
+          .then((session) => {
+            const { read: _, ...form } = session;
+            openLocalDialog({
+              form: { ...form, name: freeAlias(alias, taken()) },
+            });
+          })
+          .catch(fail)
+      : backend
+          .getSession(alias)
+          .then((session) => {
+            const { read: _, ...form } = session;
+            openDialog({ form: { ...form, alias: freeAlias(alias, taken()) } });
+          })
+          .catch(fail);
   const askDelete = (alias: string) =>
-    backend
-      .getSession(alias)
-      .then(({ read, credential }) => {
+    (localOf(alias)
+      ? backend
+          .getLocalShell(alias)
+          .then(({ read }) => ({ alias, read, local: true as const }))
+      : backend
+          .getSession(alias)
+          .then(({ read, credential }) => ({ alias, read, credential }))
+    )
+      .then((target) => {
         setNotice(undefined);
-        setDeleting({ alias, read, credential });
+        setDeleting(target);
       })
       .catch(fail);
 
@@ -328,7 +386,9 @@ export function App({
       item,
       current:
         'alias' in item
-          ? (tree.sessions.find((s) => s.alias === item.alias)?.folder ?? '')
+          ? (localOf(item.alias)?.folder ??
+            tree.sessions.find((s) => s.alias === item.alias)?.folder ??
+            '')
           : parentOf(item.folder),
     });
 
@@ -357,7 +417,12 @@ export function App({
       (ref) =>
         deletable(ref) && !outside.some((s) => sameEntry(s.credential, ref)),
     ).length;
-    const aliases = sessions.map((s) => s.alias);
+    const aliases = [
+      ...sessions.map((s) => s.alias),
+      ...tree.localShells
+        .filter((s) => inFolder(s.folder, folder))
+        .map((s) => s.name),
+    ];
     return {
       folder,
       aliases,
@@ -425,7 +490,11 @@ export function App({
     menuItem('Delete', run, { ...key('Delete', 'Del'), className: 'danger' }),
   ];
   const sessionMenu = (alias: string) => {
-    const openTab = menuItem('Open Tab', () => openHost(alias), key('Enter'));
+    const local = localOf(alias);
+    const openTab = menuItem('Open Tab', () => openSession(alias), {
+      ...key('Enter'),
+      disabled: !!local && !!shells && shellMissing(local, shells),
+    });
     if (tree.handWritten.includes(alias))
       return [openTab, menuItem('Move into slop-term', () => moveIn(alias))];
     const session = tree.sessions.find((s) => s.alias === alias);
@@ -445,8 +514,9 @@ export function App({
     menuItem('New SSH session here', () =>
       openDialog({ form: newForm(folder) }),
     ),
-    // There are no Local shell sessions yet, only unsaved local shell Tabs.
-    menuItem('New local shell here', () => {}, { disabled: true }),
+    menuItem('New local shell here', () =>
+      openLocalDialog({ form: newLocalForm(folder, shells) }),
+    ),
     menuItem('New folder here', () => setEditing({ parent: folder })),
     menuItem('Rename', () => rename(folder), key('F2')),
     menuItem('Move to…', () => moveTo({ folder }), key('F7')),
@@ -487,10 +557,10 @@ export function App({
       else if (shortcut === 'settings') backend.openSettings();
       else if (shortcut === 'filter') filter.current?.focus();
       else if (shortcut === 'newTab') {
-        if (shells[0]) open(shells[0]);
+        if (shells?.[0]) open(shells[0]);
       } else if (shortcut === 'duplicate') {
         const tab = tabs.find((t) => t.id === active);
-        if (typeof tab?.source === 'string') openHost(tab.source);
+        if (typeof tab?.source === 'string') openSession(tab.source);
         else if (tab) open(tab.source);
       } else if (shortcut === 'close') {
         if (active) removeTab(active);
@@ -528,7 +598,7 @@ export function App({
     mac,
     shells,
     open,
-    openHost,
+    openSession,
     removeTab,
     tabs,
     active,
@@ -633,6 +703,19 @@ export function App({
                     role="menuitem"
                     onClick={() => {
                       setNewMenuOpen(false);
+                      openLocalDialog({
+                        form: newLocalForm(selectedFolder, shells),
+                      });
+                    }}
+                  >
+                    Local shell session
+                  </button>
+                </li>
+                <li role="none">
+                  <button
+                    role="menuitem"
+                    onClick={() => {
+                      setNewMenuOpen(false);
                       setEditing({ parent: selectedFolder });
                     }}
                   >
@@ -648,7 +731,7 @@ export function App({
             </button>
             {menuOpen && (
               <ul role="menu" className="menu">
-                {shells.map((shell) => (
+                {shells?.map((shell) => (
                   <li key={shellLabel(shell)} role="none">
                     <button
                       role="menuitem"
@@ -671,7 +754,8 @@ export function App({
           active={active}
           mac={mac}
           onSelectTab={setActive}
-          onOpenHost={openHost}
+          onOpenSession={openSession}
+          shells={shells}
           onSession={(alias, action) => {
             if (action === 'edit') editSession(alias);
             else if (action === 'delete') askDelete(alias);
@@ -701,13 +785,26 @@ export function App({
           <>
             <span className="name">{tabLabel(activeTab)}</span>
             <span className="where">
-              {typeof activeTab.source === 'string'
-                ? activeTab.address
-                : 'local shell'}
+              {activeTab.local ? 'local shell' : activeTab.address}
               {activeTab.disconnected && ' · disconnected'}
             </span>
             {activeTab.disconnected === 'retry' && (
               <button onClick={() => restart(activeTab.id)}>Reconnect</button>
+            )}
+            {typeof activeTab.source !== 'string' && (
+              <button
+                onClick={() => {
+                  const shell = activeTab.source as Shell;
+                  openLocalDialog({
+                    form: newLocalForm(selectedFolder, [shell], {
+                      distro: shell.kind === 'wsl' ? shell.distro : '',
+                    }),
+                    tab: { id: activeTab.id, label: tabLabel(activeTab) },
+                  });
+                }}
+              >
+                Save…
+              </button>
             )}
           </>
         )}
@@ -758,6 +855,28 @@ export function App({
           }}
         />
       )}
+      {localDialog && (
+        <LocalShellDialog
+          backend={backend}
+          tree={tree}
+          shells={shells ?? []}
+          start={localDialog}
+          onCancel={() => setLocalDialog(undefined)}
+          onSaved={(next, name) => {
+            const { edit, tab } = localDialog;
+            setTree(next);
+            if (tab) updateTab(tab.id, { source: name });
+            // A rename carries its Tabs along.
+            if (edit && edit.name !== name)
+              setTabs((tabs) =>
+                tabs.map((t) =>
+                  t.source === edit.name ? { ...t, source: name } : t,
+                ),
+              );
+            setLocalDialog(undefined);
+          }}
+        />
+      )}
       {deleting && (
         <DeleteSession
           {...deleting}
@@ -765,8 +884,12 @@ export function App({
           openTabs={tabs.filter((t) => t.source === deleting.alias).length}
           onCancel={() => setDeleting(undefined)}
           onDelete={async (deleteSecret) => {
-            const { alias, read } = deleting;
-            setTree(await backend.deleteSession(alias, read, deleteSecret));
+            const { alias, read, local } = deleting;
+            setTree(
+              await (local
+                ? backend.deleteLocalShell(alias, read)
+                : backend.deleteSession(alias, read, deleteSecret)),
+            );
             setDeleting(undefined);
           }}
         />

@@ -1,4 +1,3 @@
-import { homedir } from 'node:os';
 import { spawn } from 'node-pty';
 import type {
   Backend,
@@ -6,8 +5,9 @@ import type {
   TabId,
   TerminalSize,
 } from '../shared/ipc.ts';
-import { blockLines } from './config-store.ts';
-import { detectShells, launchLine } from './shells.ts';
+import { shellMissing } from '../shared/session-rules.ts';
+import { blockLines, localShell } from './config-store.ts';
+import { detectShells, spawnLine } from './shells.ts';
 import { oscScanner } from './osc.ts';
 import { openSshTab, type TabMemory } from './ssh.ts';
 
@@ -26,10 +26,32 @@ type Open = (
   onClose: () => void,
 ) => Tab;
 
+const ptyTab =
+  (launch: Parameters<typeof spawnLine>[0]): Open =>
+  (tab, emit, onClose) => {
+    const { file, args, cwd } = spawnLine(launch);
+    const pty = spawn(file, args, {
+      name: 'xterm-256color',
+      cwd,
+      env: { ...process.env, COLORTERM: 'truecolor' },
+    });
+    pty.onData((data) => emit({ type: 'output', tab, data }));
+    pty.onExit(({ exitCode }) => {
+      onClose();
+      emit({ type: 'exit', tab, code: exitCode });
+    });
+    return {
+      write: (data) => pty.write(data),
+      resize: ({ cols, rows }) => pty.resize(cols, rows),
+      close: () => pty.kill(),
+    };
+  };
+
 export function createSessions(emit: (event: BackendEvent) => void): Pick<
   Backend,
   | 'listShells'
   | 'openLocalShell'
+  | 'openShellSession'
   | 'openSsh'
   | 'answerHostKey'
   | 'answerSecret'
@@ -72,24 +94,15 @@ export function createSessions(emit: (event: BackendEvent) => void): Pick<
     listShells: detectShells,
 
     async openLocalShell(shell) {
-      return launch((tab, emit, onClose) => {
-        const [file, args] = launchLine(shell);
-        const pty = spawn(file, args, {
-          name: 'xterm-256color',
-          cwd: homedir(),
-          env: { ...process.env, COLORTERM: 'truecolor' },
-        });
-        pty.onData((data) => emit({ type: 'output', tab, data }));
-        pty.onExit(({ exitCode }) => {
-          onClose();
-          emit({ type: 'exit', tab, code: exitCode });
-        });
-        return {
-          write: (data) => pty.write(data),
-          resize: ({ cols, rows }) => pty.resize(cols, rows),
-          close: () => pty.kill(),
-        };
-      });
+      return launch(ptyTab(shell));
+    },
+
+    // The Tab keeps the session as it was opened: a restart runs the same command even after an edit.
+    async openShellSession(name) {
+      const session = localShell(name);
+      if (shellMissing(session, await detectShells()))
+        throw new Error(`${name} is not available on this machine.`);
+      return launch(ptyTab(session));
     },
 
     async openSsh(alias) {

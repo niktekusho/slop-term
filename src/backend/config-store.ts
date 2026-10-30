@@ -9,12 +9,15 @@ import {
 import { homedir } from 'node:os';
 import path from 'node:path';
 import SSHConfig, { LineType, type Directive, type Line } from 'ssh-config';
-import type {
-  Backend,
-  BackendEvent,
-  CredentialReference,
-  SessionForm,
-  SessionTree,
+import {
+  shellKinds,
+  type Backend,
+  type BackendEvent,
+  type CredentialReference,
+  type LocalShellForm,
+  type SessionForm,
+  type SessionTree,
+  type ShellKind,
 } from '../shared/ipc.ts';
 import {
   aliasProblem,
@@ -125,7 +128,48 @@ function scanLines(lines: Line[], file: string, scan: Scan, depth: number) {
 type RawSidecar = {
   folders?: unknown;
   hosts?: Record<string, Record<string, unknown>>;
+  localShells?: Record<string, Record<string, unknown>>;
 };
+
+const localEntry = (raw: RawSidecar, name: string) =>
+  Object.hasOwn(raw.localShells ?? {}, name)
+    ? raw.localShells?.[name]
+    : undefined;
+
+// An entry edited by hand into an unknown kind can't open, so the tree skips it.
+function localShellOf(
+  name: string,
+  entry: Record<string, unknown> | undefined,
+): LocalShellForm | undefined {
+  if (!entry || !shellKinds.includes(entry.kind as ShellKind)) return undefined;
+  const text = (key: string) =>
+    typeof entry[key] === 'string' ? entry[key] : '';
+  return {
+    name,
+    folder: text('folder'),
+    kind: entry.kind as ShellKind,
+    distro: text('distro'),
+    startFolder: text('startFolder'),
+    command: text('command'),
+  };
+}
+
+const localShells = (raw: RawSidecar) =>
+  Object.entries(raw.localShells ?? {}).flatMap(
+    ([name, entry]) => localShellOf(name, entry) ?? [],
+  );
+
+/** The Sidecar entry of a form: unset fields and a distro for a shell other than WSL are left out. */
+const shellEntry = (form: LocalShellForm) =>
+  JSON.parse(
+    JSON.stringify({
+      kind: form.kind,
+      distro: (form.kind === 'wsl' && form.distro) || undefined,
+      startFolder: form.startFolder || undefined,
+      command: form.command || undefined,
+      folder: form.folder || undefined,
+    }),
+  );
 
 const ssh = (name: string) => path.join(homedir(), '.ssh', name);
 
@@ -149,6 +193,7 @@ type Sidecar = {
   folders: string[];
   folderOf: (alias: string) => string | undefined;
   credentialOf: (alias: string) => CredentialReference | undefined;
+  localShells: LocalShellForm[];
 };
 
 const folderList = (raw: RawSidecar): string[] =>
@@ -173,14 +218,16 @@ function readSidecar(file: string, warnings: Set<string>): Sidecar {
     folders: folderList(raw),
     folderOf: (alias) => folderOf(raw, alias),
     credentialOf: (alias) => credentialOf(sidecarEntry(raw, alias)),
+    localShells: localShells(raw),
   };
 }
 
-/** Every folder the tree shows: the Sidecar list, the folder of each session in `aliases`, and all their parents. */
+/** Every folder the tree shows: the Sidecar list, the folder of each SSH session in `aliases` and each Local shell session, and all their parents. */
 function shownFolders(raw: RawSidecar, aliases: Iterable<string>) {
   const paths = [
     ...folderList(raw),
     ...[...aliases].flatMap((alias) => folderOf(raw, alias) ?? []),
+    ...localShells(raw).flatMap((s) => s.folder || []),
   ];
   return new Set(
     paths.flatMap((p) =>
@@ -189,12 +236,15 @@ function shownFolders(raw: RawSidecar, aliases: Iterable<string>) {
   );
 }
 
-/** Points the folder and everything under it at `to`, in the folder list and in every host entry. */
+/** Points the folder and everything under it at `to`, in the folder list and in every host and Local shell entry. */
 function relocate(raw: RawSidecar, from: string, to: string) {
   const swap = (p: string) =>
     inFolder(p, from) ? to + p.slice(from.length) : p;
   raw.folders = folderList(raw).map(swap);
-  for (const entry of Object.values(raw.hosts ?? {}))
+  for (const entry of [
+    ...Object.values(raw.hosts ?? {}),
+    ...Object.values(raw.localShells ?? {}),
+  ])
     if (typeof entry?.folder === 'string') entry.folder = swap(entry.folder);
 }
 
@@ -221,6 +271,14 @@ export function savedSession(alias: string) {
   }
   const entry = sidecarEntry(raw, alias);
   return { credential: credentialOf(entry), read: JSON.stringify(entry) };
+}
+
+/** A Local shell session, and its Sidecar entry as read now, which a later save or delete checks for conflicts. */
+export function localShell(name: string) {
+  const entry = localEntry(parseSidecar(ssh('slop-term.json')), name);
+  const form = localShellOf(name, entry);
+  if (!form) throw new Error(`${name} is no longer in slop-term.json.`);
+  return { ...form, read: JSON.stringify(entry) };
 }
 
 /** Whether `alias` is still a Saved session or a Hand-written host. */
@@ -414,6 +472,9 @@ export function createConfigStore(
   | 'deleteFolder'
   | 'moveIn'
   | 'commentOut'
+  | 'getLocalShell'
+  | 'saveLocalShell'
+  | 'deleteLocalShell'
 > {
   const dir = path.join(homedir(), '.ssh');
   const managed = ssh('slop-term.conf');
@@ -454,6 +515,7 @@ export function createConfigStore(
         };
       }),
       handWritten,
+      localShells: sidecar.localShells,
       warnings: [...warnings],
     };
   };
@@ -544,9 +606,10 @@ export function createConfigStore(
 
     async saveSession(form, edit, secret = {}) {
       const own = edit?.alias ?? form.alias;
-      const taken = [...hostsIn(managed, config)].filter(
-        (alias) => alias !== edit?.alias,
-      );
+      const taken = [
+        ...hostsIn(managed, config),
+        ...Object.keys(parseSidecar(sidecarFile).localShells ?? {}),
+      ].filter((alias) => alias !== edit?.alias);
       const problem =
         aliasProblem(form.alias, taken) ??
         form.options.map(optionProblem).find(Boolean);
@@ -677,16 +740,20 @@ export function createConfigStore(
       const raw = parseSidecar(sidecarFile);
       const live = hostsIn(managed);
       if ('alias' in item) {
-        if (!live.has(item.alias)) throw new Error(gone(item.alias));
+        const list = localEntry(raw, item.alias) ? 'localShells' : 'hosts';
+        if (list === 'hosts' && !live.has(item.alias))
+          throw new Error(gone(item.alias));
+        const { folder: old, ...rest } =
+          (list === 'hosts'
+            ? sidecarEntry(raw, item.alias)
+            : localEntry(raw, item.alias)) ?? {};
         // A folder that only this session names would vanish with the move, but empty folders stay.
-        const old = folderOf(raw, item.alias);
-        if (old && !folderList(raw).includes(old))
+        if (typeof old === 'string' && old && !folderList(raw).includes(old))
           raw.folders = [...folderList(raw), old];
-        const { folder: _, ...rest } = sidecarEntry(raw, item.alias) ?? {};
         const entry = to ? { ...rest, folder: to } : rest;
-        const hosts = { ...raw.hosts, [item.alias]: entry };
-        if (!Object.keys(entry).length) delete hosts[item.alias];
-        raw.hosts = hosts;
+        const entries = { ...raw[list], [item.alias]: entry };
+        if (!Object.keys(entry).length) delete entries[item.alias];
+        raw[list] = entries;
       } else {
         const { folder } = item;
         if (!shownFolders(raw, live).has(folder)) throw new Error(gone(folder));
@@ -708,7 +775,13 @@ export function createConfigStore(
       const doomed = [...hostsIn(managed)].filter((alias) =>
         inFolder(folderOf(raw, alias) ?? '', folder),
       );
-      if (doomed.toSorted().join('\n') !== aliases.toSorted().join('\n'))
+      const doomedShells = localShells(raw)
+        .filter((s) => inFolder(s.folder, folder))
+        .map((s) => s.name);
+      if (
+        [...doomed, ...doomedShells].toSorted().join('\n') !==
+        aliases.toSorted().join('\n')
+      )
         throw new Error(
           `${folder} changed since you asked to delete it. Try again.`,
         );
@@ -730,6 +803,12 @@ export function createConfigStore(
       raw.hosts = Object.fromEntries(
         Object.entries(raw.hosts ?? {}).filter(([a]) => !doomed.includes(a)),
       );
+      if (doomedShells.length)
+        raw.localShells = Object.fromEntries(
+          Object.entries(raw.localShells ?? {}).filter(
+            ([name]) => !doomedShells.includes(name),
+          ),
+        );
       if (doomed.length) writeFileSync(managed, lines.join(''));
       writeSidecar(raw);
       // A secret two of these sessions share comes up twice: the second delete finds nothing and fails quietly.
@@ -775,6 +854,49 @@ export function createConfigStore(
         ...commented,
       );
       writeFileSync(config, out.join(''));
+      return reload();
+    },
+
+    async getLocalShell(name) {
+      return localShell(name);
+    },
+
+    async saveLocalShell(form, edit) {
+      const raw = parseSidecar(sidecarFile);
+      const taken = [
+        ...hostsIn(managed, config),
+        ...Object.keys(raw.localShells ?? {}),
+      ].filter((name) => name !== edit?.name);
+      const problem =
+        aliasProblem(form.name, taken) ??
+        (shellKinds.includes(form.kind)
+          ? undefined
+          : `${form.kind} is not a shell slop-term knows.`);
+      if (problem) throw new Error(problem);
+      if (edit && JSON.stringify(localEntry(raw, edit.name)) !== edit.read)
+        throw changed(edit.name);
+      // A rename keeps the session's place in the file.
+      const entries = Object.entries(raw.localShells ?? {});
+      raw.localShells = Object.fromEntries(
+        edit
+          ? entries.map(([name, entry]) =>
+              name === edit.name
+                ? [form.name, shellEntry(form)]
+                : [name, entry],
+            )
+          : [...entries, [form.name, shellEntry(form)]],
+      );
+      writeSidecar(raw);
+      return reload();
+    },
+
+    async deleteLocalShell(name, read) {
+      const raw = parseSidecar(sidecarFile);
+      if (JSON.stringify(localEntry(raw, name)) !== read) throw changed(name);
+      raw.localShells = Object.fromEntries(
+        Object.entries(raw.localShells ?? {}).filter(([n]) => n !== name),
+      );
+      writeSidecar(raw);
       return reload();
     },
 

@@ -1,8 +1,10 @@
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { Shell } from '../shared/ipc.ts';
+import { launchLine } from '../shared/session-rules.ts';
 
 export async function detectShells(): Promise<Shell[]> {
   if (process.platform !== 'win32') {
@@ -18,18 +20,16 @@ export async function detectShells(): Promise<Shell[]> {
   return shells;
 }
 
-export function launchLine(shell: Shell): [file: string, args: string[]] {
-  switch (shell.kind) {
-    case 'pwsh':
-    case 'powershell':
-    case 'cmd':
-      return [`${shell.kind}.exe`, []];
-    case 'wsl':
-      return ['wsl.exe', ['-d', shell.distro, '--cd', '~']];
-    case 'zsh':
-    case 'bash':
-      return [`/bin/${shell.kind}`, ['-l']];
-  }
+export function spawnLine(launch: Parameters<typeof launchLine>[0]) {
+  const { args, cwd } = launchLine(launch);
+  return {
+    file:
+      process.platform === 'win32'
+        ? `${launch.kind}.exe`
+        : `/bin/${launch.kind}`,
+    args,
+    cwd: cwd.replace(/^~(?=$|[\\/])/, homedir()),
+  };
 }
 
 export function findOnPath(file: string) {

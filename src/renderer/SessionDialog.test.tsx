@@ -48,7 +48,13 @@ async function setup(
   handWritten: string[] = [],
 ) {
   const backend = new FakeBackend();
-  backend.tree = { folders: ['Work'], sessions, handWritten, warnings: [] };
+  backend.tree = {
+    folders: ['Work'],
+    sessions,
+    handWritten,
+    localShells: [],
+    warnings: [],
+  };
   backend.savedSessions = stored;
   const user = userEvent.setup();
   render(<App backend={backend} mac={false} />);

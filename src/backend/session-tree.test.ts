@@ -61,6 +61,7 @@ describe('session tree', () => {
         { alias: 'loose' },
       ],
       handWritten: ['web1'],
+      localShells: [],
       warnings: [],
     });
   });

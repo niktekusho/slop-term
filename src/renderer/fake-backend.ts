@@ -6,6 +6,7 @@ import {
   type BackendEvent,
   type ProcessMetrics,
   type Request,
+  type SavedLocalShell,
   type SavedSession,
   type SessionDefaults,
   type SessionTree,
@@ -32,6 +33,7 @@ export class FakeBackend implements BackendClient {
   traceFile: string | undefined = '/tmp/slop-term-trace.json';
   tree: SessionTree = emptyTree;
   savedSessions: Record<string, SavedSession> = {};
+  savedLocalShells: Record<string, SavedLocalShell> = {};
   defaults: SessionDefaults = {
     hostname: '',
     port: '22',
@@ -81,6 +83,11 @@ export class FakeBackend implements BackendClient {
 
   async openLocalShell(shell: Shell): Promise<TabId> {
     this.requests.push({ method: 'openLocalShell', args: [shell] });
+    return `tab-${this.nextTab++}`;
+  }
+
+  async openShellSession(name: string): Promise<TabId> {
+    this.requests.push({ method: 'openShellSession', args: [name] });
     return `tab-${this.nextTab++}`;
   }
 
@@ -177,6 +184,27 @@ export class FakeBackend implements BackendClient {
     this.requests.push({ method: 'testSession', args });
     await this.gate('testSession');
     return `test-${this.nextTab++}`;
+  }
+
+  async getLocalShell(name: string) {
+    this.requests.push({ method: 'getLocalShell', args: [name] });
+    const session = this.savedLocalShells[name];
+    if (!session) throw new Error(`${name} is no longer in slop-term.json.`);
+    return session;
+  }
+
+  /** Puts the session in the tree, so a test sees its Tabs move under it. */
+  async saveLocalShell(...args: Parameters<Backend['saveLocalShell']>) {
+    this.requests.push({ method: 'saveLocalShell', args });
+    const [form, edit] = args;
+    const others = this.tree.localShells.filter((s) => s.name !== edit?.name);
+    this.tree = { ...this.tree, localShells: [...others, form] };
+    return this.tree;
+  }
+
+  async deleteLocalShell(...args: Parameters<Backend['deleteLocalShell']>) {
+    this.requests.push({ method: 'deleteLocalShell', args });
+    return this.tree;
   }
 
   private relocate(from: string, to: string) {

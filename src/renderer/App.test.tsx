@@ -630,6 +630,7 @@ describe('Session tree', () => {
           folders: [],
           sessions: [{ alias: 'db' }],
           handWritten: [],
+          localShells: [],
           warnings: ['Match blocks in ~/.ssh/config are ignored'],
         },
       }),

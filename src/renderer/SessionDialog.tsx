@@ -26,6 +26,7 @@ import {
   optionKey,
   optionProblem,
   sameEntry,
+  takenNames,
 } from '../shared/session-rules.ts';
 import { optionDescriptions } from './option-descriptions.ts';
 
@@ -289,10 +290,7 @@ export function SessionDialog({
   const update = (patch: Partial<SessionForm>) =>
     setForm((f) => ({ ...f, ...patch }));
 
-  const taken = [
-    ...tree.sessions.map((s) => s.alias),
-    ...tree.handWritten,
-  ].filter((alias) => alias !== own);
+  const taken = takenNames(tree).filter((alias) => alias !== own);
   const aliasError = aliasProblem(form.alias, taken);
   const problems = form.options.map(optionProblem);
   // A string, so the effect below reruns only when the lines change, not on every render's new array.

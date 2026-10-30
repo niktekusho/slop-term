@@ -1,8 +1,71 @@
-import type { CredentialReference } from './ipc.ts';
+import type {
+  CredentialReference,
+  SessionTree,
+  Shell,
+  ShellKind,
+} from './ipc.ts';
+
+/** An unsaved Tab's shell, or a Local shell session. An empty or missing field means unset. */
+type Launch = {
+  kind: ShellKind;
+  distro?: string;
+  startFolder?: string;
+  command?: string;
+};
+
+/**
+ * The arguments and working folder a local shell starts with. WSL takes its start folder as `--cd`.
+ * A string goes on the command line as it is: cmd and WSL read the command after `/c` or `--` raw, so quoting would change it.
+ */
+export function launchLine({ kind, distro, startFolder, command }: Launch): {
+  args: string[] | string;
+  cwd: string;
+} {
+  const cwd = startFolder || '~';
+  switch (kind) {
+    case 'wsl':
+      return {
+        args: [
+          ...(distro ? [`-d ${distro}`] : []),
+          `--cd ${/\s/.test(cwd) ? `"${cwd}"` : cwd}`,
+          ...(command ? [`-- ${command}`] : []),
+        ].join(' '),
+        cwd: '~',
+      };
+    case 'cmd':
+      return { args: command ? `/c ${command}` : '', cwd };
+    case 'pwsh':
+    case 'powershell':
+      return { args: command ? ['-Command', command] : [], cwd };
+    case 'zsh':
+    case 'bash':
+      return { args: command ? ['-lc', command] : ['-l'], cwd };
+  }
+}
+
+/** Whether this machine lacks the session's shell or WSL distro. Windows PowerShell comes with every Windows, as cmd does. */
+export function shellMissing(
+  { kind, distro }: { kind: ShellKind; distro: string },
+  shells: Shell[],
+) {
+  if (kind === 'wsl')
+    return !shells.some(
+      (s) => s.kind === 'wsl' && (!distro || s.distro === distro),
+    );
+  const needs = kind === 'powershell' ? 'cmd' : kind;
+  return !shells.some((s) => s.kind === needs);
+}
 
 /** Whether two references point at the same saved secret. */
 export const sameEntry = (a?: CredentialReference, b?: CredentialReference) =>
   !!a && !!b && a.provider === b.provider && a.entry === b.entry;
+
+/** Every name an alias or Local shell session name must not repeat. */
+export const takenNames = (tree: SessionTree) => [
+  ...tree.sessions.map((s) => s.alias),
+  ...tree.handWritten,
+  ...tree.localShells.map((s) => s.name),
+];
 
 /** The alias rules the dialog shows while typing and the back end checks on save. `taken` leaves out the session's own alias. */
 export function aliasProblem(alias: string, taken: string[]) {

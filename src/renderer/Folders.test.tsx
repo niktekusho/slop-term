@@ -32,6 +32,7 @@ const sample: SessionTree = {
     { alias: 'loose' },
   ],
   handWritten: [],
+  localShells: [],
   warnings: [],
 };
 
@@ -139,7 +140,6 @@ describe('New folder and Rename', () => {
       'Move to…F7',
       'DeleteDel',
     ]);
-    expect(items[1]).toBeDisabled();
     expect(items[5]).toHaveClass('danger');
 
     await user.click(items[0]);
