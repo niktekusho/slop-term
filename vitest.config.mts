@@ -3,6 +3,8 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   test: {
+    // Each back-end test starts Electron, pwsh and wsl.exe: more workers slow every start and leave the total time unchanged.
+    maxWorkers: 4,
     projects: [
       {
         test: {

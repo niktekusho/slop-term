@@ -1,6 +1,6 @@
 # Retro: ticket 13, Local shell Saved sessions
 
-Session of 2026-10-30. These are improvements to the environment that would make future sessions faster or safer. They are ordered by severity. Findings 2, 3 and 4 are applied: the hook regex, two glossary terms and a rule in `CODING_STANDARDS.md`, and one line in the repo `CLAUDE.md`. Finding 1 needs its own diagnosis session.
+Session of 2026-10-30. These are improvements to the environment that would make future sessions faster or safer. They are ordered by severity. Findings 2, 3 and 4 are applied: the hook regex, two glossary terms and a rule in `CODING_STANDARDS.md`, and one line in the repo `CLAUDE.md`. Finding 1 is applied too, after its own diagnosis session: `maxWorkers: 4` in `vitest.config.mts`.
 
 ## 1. The full suite is red on almost every run, and retro 12's fix doesn't work
 
@@ -22,6 +22,30 @@ What this session suggests about the cause:
 - A test that waits twice in a row (exit, then restart) can pass each 15 s wait and still exceed the 20 s `testTimeout`. The local-shell tests now give each wait its own budget.
 
 Fix: run the `diagnosing-bugs` skill on it as its own task. Measure the time to first output of "opens the first shell" alone, in the back-end project alone, and in the full suite. Then decide between a separate serial project for the two pty files (`local-shell.test.ts`, `local-shell-sessions.test.ts`) and longer waits. Count red runs over 5 full runs before and after.
+
+### Diagnosis, 2026-10-30
+
+The cause is the worker count. Vitest starts 11 workers on this 12-core machine, and every back-end test starts an Electron back end, and the pty tests also start pwsh and `wsl.exe`. The more of these start at once, the slower each one gets, while the test waits stay fixed. Pinning the run to 4 cores changed almost nothing, so the limit is concurrent process starts, not CPU.
+
+A timing probe measured the time from writing `echo` to pwsh answering it:
+
+| Setup | pwsh echo | Full suite | Failures |
+|---|---|---|---|
+| Test alone | 1.3 s | | |
+| One suite, 11 workers | 4 to 6.5 s | 85 s | 0 of 3 runs |
+| Two suites at once, 11 workers each | 12 to 15 s | 151 s | 11 tests |
+| One suite, 4 workers | 2.3 s | 72 to 79 s | 0 of 5 runs |
+| Two suites at once, 4 workers each | 4.3 to 5 s | 118 s | 0 |
+
+One suite ran green on the day of the diagnosis, so the red loop runs two full suites at once. It fails the same tests this finding lists: "opens the first shell" (the `eventually` wait is 10 s), the UI keycap test at 5 s, "sends one keepalive… when the computer wakes", and `beforeEach` hooks at 10 s. The 6 red runs out of 6 in this session most likely had a second run on the machine at the same time.
+
+The fix is `maxWorkers: 4`. `fileParallelism: false` failed because one worker runs too much in sequence. The worker count has no unit-test seam: the two-suite loop is the check.
+
+Open:
+- `windows-latest` has 4 cores, so vitest already runs 3 workers there and the fix changes nothing on CI. If CI still flakes, it needs its own diagnosis.
+- `saved-sessions.test.ts` writes fixed secret names (`own`, `shared`) to the real Windows credential store. Two suites at once overwrite each other's secrets, and "removes the reference and deletes the secret only when no other session uses it" failed once that way.
+- `listShells` runs `wsl.exe -l -q` on every call, which takes 2 to 9 s under load.
+- The finding 2 hook regex still blocks read-only `node -e` commands that mention `src/`.
 
 ## 2. The `src/` shell-edit hook blocks commands that only mention `src/`
 
