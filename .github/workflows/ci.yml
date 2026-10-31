@@ -10,8 +10,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Only ubuntu-latest runs Linux containers: the SSH server tests skip on Windows.
-        os: [windows-latest, ubuntu-latest]
+        # Only ubuntu-latest runs Linux containers: the SSH server tests skip on Windows and macOS.
+        os: [windows-latest, ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -23,7 +23,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm typecheck
-      - if: runner.os == 'Windows'
+      - if: runner.os != 'Linux'
         run: pnpm test
       # The keychain tests need a Secret Service: a D-Bus session with an unlocked gnome-keyring.
       - if: runner.os == 'Linux'
