@@ -1,7 +1,6 @@
 import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { AsyncEntry, findCredentialsAsync } from '@napi-rs/keyring';
 import { utils } from 'ssh2';
 import {
   afterAll,
@@ -13,7 +12,11 @@ import {
   vi,
 } from 'vitest';
 import type { CredentialReference, SessionForm, TabId } from '../shared/ipc.ts';
-import { startBackend } from './harness.ts';
+import {
+  findKeychainCredentials,
+  keychainEntry,
+  startBackend,
+} from './harness.ts';
 import { fingerprint, savedKeys } from './known-hosts.ts';
 import {
   dockerRunning,
@@ -34,7 +37,7 @@ const quoted = (file: string) => `"${file.replaceAll('\\', '/')}"`;
 
 // Secrets go to a keychain service of this test run, never the app's own.
 const service = `slop-term-test-${process.pid}`;
-const keychain = (entry: string) => new AsyncEntry(service, entry);
+const keychain = (entry: string) => keychainEntry(service, entry);
 
 /**
  * Starts the back end with `config` as `~/.ssh/config` and `managed` as the Managed config, which `config` includes.
@@ -524,7 +527,7 @@ describe.skipIf(!docker)('SSH Tab against OpenSSH in Docker', () => {
 
   describe('password and passphrase login', () => {
     afterEach(async () => {
-      for (const { account } of await findCredentialsAsync(service))
+      for (const { account } of await findKeychainCredentials(service))
         await keychain(account).deletePassword();
     });
     const passwordHost = () =>
@@ -715,7 +718,7 @@ describe.skipIf(!docker)('SSH Tab against OpenSSH in Docker', () => {
         ),
       );
       expect(await sidecar()).toEqual(edited);
-      const [kept] = await findCredentialsAsync(service);
+      const [kept] = await findKeychainCredentials(service);
       expect(kept.password).toBe('hunter2');
     });
 
@@ -844,7 +847,7 @@ describe.skipIf(!docker)('SSH Tab against OpenSSH in Docker', () => {
 
     describe('login', () => {
       afterEach(async () => {
-        for (const { account } of await findCredentialsAsync(service))
+        for (const { account } of await findKeychainCredentials(service))
           await keychain(account).deletePassword();
       });
       const noKey = (patch: Partial<SessionForm> = {}) =>
@@ -882,7 +885,7 @@ describe.skipIf(!docker)('SSH Tab against OpenSSH in Docker', () => {
         );
         await harness.backend.answerSecret(test, ['hunter2'], true);
         await allPassed();
-        expect(await findCredentialsAsync(service)).toEqual([]);
+        expect(await findKeychainCredentials(service)).toEqual([]);
         expect(
           existsSync(path.join(harness.home, '.ssh', 'slop-term.json')),
         ).toBe(false);
@@ -909,7 +912,7 @@ describe.skipIf(!docker)('SSH Tab against OpenSSH in Docker', () => {
         });
         await allPassed();
         expect(asked(test)).toEqual([]);
-        expect(await findCredentialsAsync(service)).toEqual([]);
+        expect(await findKeychainCredentials(service)).toEqual([]);
       });
 
       it('fails at logged in when the user cancels the password question', async () => {

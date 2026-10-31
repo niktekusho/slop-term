@@ -1,8 +1,16 @@
-import { fork } from 'node:child_process';
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { execFile, fork } from 'node:child_process';
+import {
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { promisify } from 'node:util';
 import electronPath from 'electron';
 import {
   createClient,
@@ -10,6 +18,38 @@ import {
   type Message,
   type TabId,
 } from '../shared/ipc.ts';
+
+const keychainHome = process.env.SLOP_TEST_KEYCHAIN_HOME;
+
+async function keychainTool(...args: string[]) {
+  const { stdout } = await promisify(execFile)(
+    electronPath as unknown as string,
+    [path.join(import.meta.dirname, 'keychain-tool.ts'), ...args],
+    {
+      env: {
+        ...process.env,
+        ELECTRON_RUN_AS_NODE: '1',
+        ...(keychainHome && { HOME: keychainHome }),
+      },
+    },
+  );
+  return JSON.parse(stdout);
+}
+
+/** The keychain entry a back end of {@link startBackend} sees, read and written from Electron like the back end does. */
+export const keychainEntry = (service: string, account: string) => ({
+  getPassword: (): Promise<string | null> =>
+    keychainTool('get', service, account),
+  setPassword: (password: string): Promise<void> =>
+    keychainTool('set', service, account, password),
+  deletePassword: (): Promise<boolean> =>
+    keychainTool('delete', service, account),
+});
+
+export const findKeychainCredentials = (
+  service: string,
+): Promise<{ account: string; password: string }[]> =>
+  keychainTool('find', service);
 
 /**
  * Vitest's Node and Electron's Node have different V8 serialization versions:
@@ -26,6 +66,14 @@ export async function startBackend(
   for (const [name, text] of Object.entries(files)) {
     await mkdir(path.dirname(path.join(home, name)), { recursive: true });
     await writeFile(path.join(home, name), text);
+  }
+  // macOS finds the default keychain under $HOME: the link points every back end at the test keychain.
+  if (keychainHome) {
+    await mkdir(path.join(home, 'Library'));
+    await symlink(
+      path.join(keychainHome, 'Library', 'Keychains'),
+      path.join(home, 'Library', 'Keychains'),
+    );
   }
   const child = fork(path.join(import.meta.dirname, 'main.ts'), [home], {
     execPath: electronPath as unknown as string,

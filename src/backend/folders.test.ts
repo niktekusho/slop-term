@@ -1,15 +1,14 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { AsyncEntry } from '@napi-rs/keyring';
 import { afterEach, describe, expect, it } from 'vitest';
-import { startBackend } from './harness.ts';
+import { keychainEntry, startBackend } from './harness.ts';
 
 let harness: Awaited<ReturnType<typeof startBackend>>;
 afterEach(() => harness.stop());
 
 // Secrets go to a keychain service of this test run, never the app's own.
 const service = `slop-term-test-folders-${process.pid}`;
-const keychain = (entry: string) => new AsyncEntry(service, entry);
+const keychain = (entry: string) => keychainEntry(service, entry);
 
 async function start(
   files: Record<string, string> = {},

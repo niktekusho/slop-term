@@ -17,8 +17,8 @@ const run = async (...args: string[]) =>
 
 export async function dockerRunning() {
   try {
-    await run('info');
-    return true;
+    // A Windows-container daemon (GitHub's windows-latest) cannot pull the Linux OpenSSH image.
+    return (await run('info', '--format', '{{.OSType}}')) === 'linux';
   } catch {
     return false;
   }

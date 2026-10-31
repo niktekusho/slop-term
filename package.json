@@ -12,6 +12,7 @@
   },
   "main": ".vite/build/main.cjs",
   "scripts": {
+    "postinstall": "install-electron",
     "start": "electron-forge start",
     "start:profile": "electron-forge start --inspect-electron",
     "package": "electron-forge package",
