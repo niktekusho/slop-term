@@ -157,6 +157,9 @@ describe('drop and reconnect against an in-process server', () => {
     eventually(() =>
       expect(harness.events).toContainEqual({ type: 'connected', tab }),
     );
+  // A Tab sends keepalives only once its shell is open, which comes after the connected event: the fake server's prompt marks it.
+  const shellOpen = (tab: TabId) =>
+    eventually(() => expect(harness.output(tab)).toContain('$ '));
 
   it('reports a closed connection as a drop at once, not as an exit', async () => {
     await start(fakeHost());
@@ -190,7 +193,7 @@ describe('drop and reconnect against an in-process server', () => {
       await harness.backend.openSsh('box'),
       await harness.backend.openSsh('box'),
     ];
-    for (const tab of tabs) await connected(tab);
+    for (const tab of tabs) await shellOpen(tab);
     const before = fake.keepalives();
     await harness.backend.wake();
     await eventually(() => expect(fake.keepalives()).toBe(before + 2));
@@ -266,7 +269,7 @@ describe('drop and reconnect against an in-process server', () => {
   it('leaves a connected Tab alone when its Saved session is edited', async () => {
     await start('', { managed: fakeHost() });
     const tab = await harness.backend.openSsh('box');
-    await connected(tab);
+    await shellOpen(tab);
     const { read, ...form } = await harness.backend.getSession('box');
     await harness.backend.saveSession(
       { ...form, user: 'alice' },

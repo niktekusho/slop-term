@@ -29,8 +29,10 @@ describe('local shells', () => {
           (s) => s.kind === 'wsl' && s.distro.startsWith('docker-desktop'),
         ),
       ).toEqual([]);
-    } else {
+    } else if (process.platform === 'darwin') {
       expect(shells).toEqual([{ kind: 'zsh' }, { kind: 'bash' }]);
+    } else {
+      expect(shells).toContainEqual({ kind: 'bash' });
     }
   });
 

@@ -264,7 +264,7 @@ describe('opening a Local shell session', () => {
               ]
             : []),
         ]
-      : (['zsh', 'bash'] as const).map((kind) => [
+      : (['zsh', 'bash'] as const).filter(has).map((kind) => [
           form({
             name: kind,
             kind,
