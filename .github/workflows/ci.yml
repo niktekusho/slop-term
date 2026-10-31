@@ -7,7 +7,12 @@ on:
 
 jobs:
   check:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Only ubuntu-latest runs Linux containers: the SSH server tests skip on Windows.
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -18,4 +23,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm typecheck
-      - run: pnpm test
+      - if: runner.os == 'Windows'
+        run: pnpm test
+      # The keychain tests need a Secret Service: a D-Bus session with an unlocked gnome-keyring.
+      - if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gnome-keyring dbus-x11
+          dbus-run-session -- sh -c "echo '' | gnome-keyring-daemon --unlock --components=secrets && pnpm test"
