@@ -21,13 +21,20 @@ import type {
   TabId,
   TerminalSize,
 } from '../shared/ipc.ts';
+import { usernameMismatch } from '../shared/session-rules.ts';
 import {
   hostExists,
   savedSession,
   saveCredential,
   sshError,
 } from './config-store.ts';
-import { accountName, newKeychainEntry, provider } from './credentials.ts';
+import {
+  accountName,
+  LoginNeeded,
+  newKeychainEntry,
+  provider,
+  type ProviderRead,
+} from './credentials.ts';
 import {
   fingerprint,
   hostEntry,
@@ -146,7 +153,10 @@ export function openSshTab(
   const print = (text: string) =>
     emit({ type: 'output', tab, data: `\r\n${text}\r\n` });
   // No reason means the user closed the Tab or its shell exited.
-  const close = (reason?: string, final?: true) => {
+  const close = (
+    reason?: string,
+    extra: { final?: true; user?: string } = {},
+  ) => {
     if (closed) return;
     closed = true;
     if (answer) {
@@ -162,8 +172,7 @@ export function openSshTab(
     client.end();
     onClose();
     if (reason && test) report(reason);
-    else if (reason)
-      emit({ type: 'dropped', tab, reason, ...(final && { final }) });
+    else if (reason) emit({ type: 'dropped', tab, reason, ...extra });
   };
   const ask = (question: HostKeyQuestion) =>
     new Promise<boolean>((resolve) => {
@@ -206,8 +215,8 @@ export function openSshTab(
       throw test ? new Error(sshError(e)) : e;
     });
     if (!test && !hostExists(alias))
-      return close('This Saved session no longer exists.', true);
-    if (r.jumpHost) return close(jumpHostMessage, true);
+      return close('This Saved session no longer exists.', { final: true });
+    if (r.jumpHost) return close(jumpHostMessage, { final: true });
     if (test) {
       where = ` ${r.hostname}:${r.port}`;
       who = ` as ${r.user}`;
@@ -280,6 +289,32 @@ export function openSshTab(
     type Save = { kind: Kind; secret: string; name: string };
     let toSave: Save | undefined;
 
+    type Read = ProviderRead | { reason: string };
+    /** Logs in to the provider first when it asks, as TPM does for its API keys. Undefined means the user cancelled that login. */
+    async function readRef(
+      own: CredentialReference,
+    ): Promise<Read | undefined> {
+      for (;;) {
+        try {
+          return await provider(own).read(own);
+        } catch (e) {
+          if (!(e instanceof LoginNeeded))
+            return { reason: (e as Error).message };
+          const got = await askSecret({
+            alias,
+            title: e.title,
+            prompts: e.prompts,
+            reason: e.message,
+          });
+          if (!got) return undefined;
+          await e.login(got.answers);
+        }
+      }
+    }
+    // The reference is read before the first login method, so the username check runs before any secret goes out.
+    // The first `secret()` of the reference's kind takes this read instead of reading again.
+    let firstRead: Read | undefined;
+
     /** Typed, then read from the reference, then asked. `retry` means the last one was rejected. */
     async function secret(
       kind: Kind,
@@ -291,7 +326,9 @@ export function openSshTab(
       let reason: string | undefined;
       if (retry) {
         delete typed[kind];
-        if (fromProvider[kind]) {
+        if (fromProvider[kind] && ref?.provider === 'tpm')
+          reason = `TPM's ${kind} was rejected. Update the entry in TPM, then reconnect.`;
+        else if (fromProvider[kind]) {
           reason = `The saved ${kind} was rejected.`;
           if (session) offers[kind] = 'update';
         } else
@@ -300,16 +337,17 @@ export function openSshTab(
               ? 'Permission denied, please try again.'
               : "That passphrase doesn't unlock the key.";
       } else if (typed[kind]) return typed[kind];
-      else if (own)
-        try {
-          const read = await provider(own).read(own);
+      else if (own) {
+        const read = firstRead ?? (await readRef(own));
+        firstRead = undefined;
+        if (!read) return undefined;
+        if ('secret' in read) {
           fromProvider[kind] = true;
-          return read;
-        } catch (e) {
-          reason = (e as Error).message;
-          if (session) offers[kind] = 'same';
+          return read.secret;
         }
-      else if (session && !ref) offers[kind] = 'new';
+        reason = read.reason;
+        if (session) offers[kind] = 'same';
+      } else if (session && !ref) offers[kind] = 'new';
       fromProvider[kind] = false;
       const got = await askSecret({
         alias,
@@ -415,7 +453,20 @@ export function openSshTab(
       },
     });
 
+    let refRead = false;
     async function nextAuth(left: string[] | null, partial: boolean) {
+      if (ref && !refRead) {
+        refRead = true;
+        const read = await readRef(ref);
+        if (!read) return cancelled();
+        const named = 'username' in read ? read.username : undefined;
+        // ponytail: only TPM reads a username so far. KeePass (ticket 16) names its own provider here.
+        if (named && named !== username) {
+          close(usernameMismatch(named, username), { user: named });
+          return false as const;
+        }
+        firstRead = read;
+      }
       const allows = (method: string) => !left || left.includes(method);
       const retry =
         !!passwordSentBy && !partial && !!left?.includes(passwordSentBy);

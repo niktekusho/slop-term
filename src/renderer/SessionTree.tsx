@@ -27,6 +27,8 @@ export type Tab = {
   exit?: number;
   /** `retry` until R reconnects it. `final` when a reconnect can't help. */
   disconnected?: 'retry' | 'final';
+  /** The username a TPM entry names, when it blocked the connect for differing from `User`. */
+  useUser?: string;
 };
 
 type Folder = {

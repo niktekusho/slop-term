@@ -89,9 +89,13 @@ export async function startSshServer(publicKeys: string[], password?: string) {
 
 /**
  * An in-process SSH server for what OpenSSH in Docker can't show: it counts keepalives and ends connections on demand.
- * Any login works, or with `code` only a keyboard-interactive login that answers it. `users` lists the user name of each login attempt.
+ * Any login works, or with `code` only a keyboard-interactive login that answers it, or with `password` only that password.
+ * `users` lists the user name of each login attempt.
  */
-export async function startFakeSshServer({ code }: { code?: string } = {}) {
+export async function startFakeSshServer({
+  code,
+  password,
+}: { code?: string; password?: string } = {}) {
   const users: string[] = [];
   const connections = new Set<Connection>();
   const shells = new Set<ServerChannel>();
@@ -110,6 +114,10 @@ export async function startFakeSshServer({ code }: { code?: string } = {}) {
       conn
         .on('authentication', (ctx) => {
           users.push(ctx.username);
+          if (password !== undefined)
+            return ctx.method === 'password' && ctx.password === password
+              ? ctx.accept()
+              : ctx.reject(['password']);
           if (!code) return ctx.accept();
           if (ctx.method !== 'keyboard-interactive')
             return ctx.reject(['keyboard-interactive']);

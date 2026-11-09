@@ -13,6 +13,7 @@ import {
   type Settings,
   type Shell,
   type TabId,
+  type TpmFind,
 } from '../shared/ipc.ts';
 import {
   inFolder,
@@ -42,6 +43,8 @@ export class FakeBackend implements BackendClient {
   };
   keyFile: string | undefined = '~/.ssh/id_web';
   saveError: string | undefined;
+  /** What every `findTpm` answers; an Error rejects with its message. */
+  tpmFind: TpmFind | Error = { entries: [] };
   private listeners = new Set<(event: BackendEvent) => void>();
   private nextTab = 1;
   private holds = new Map<keyof Backend, Promise<void>>();
@@ -282,6 +285,16 @@ export class FakeBackend implements BackendClient {
     });
     this.tree = { ...this.tree, sessions };
     return this.tree;
+  }
+
+  async findTpm(...args: Parameters<Backend['findTpm']>) {
+    this.requests.push({ method: 'findTpm', args });
+    if (this.tpmFind instanceof Error) throw this.tpmFind;
+    return this.tpmFind;
+  }
+
+  async setTpmKeys(...args: Parameters<Backend['setTpmKeys']>) {
+    this.requests.push({ method: 'setTpmKeys', args });
   }
 
   async pickKeyFile() {

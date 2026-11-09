@@ -92,6 +92,8 @@ function parse(raw: Record<string, unknown>): Settings {
   const tint = raw.sessionColourTint;
   if (typeof tint === 'number' && tint >= 0 && tint <= 100)
     settings.sessionColourTint = tint;
+  if (typeof raw.tpmUrl === 'string' && raw.tpmUrl.trim())
+    settings.tpmUrl = raw.tpmUrl.trim();
   return settings;
 }
 

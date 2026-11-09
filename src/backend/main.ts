@@ -5,6 +5,8 @@ import {
   type Request,
 } from '../shared/ipc.ts';
 import { createConfigStore } from './config-store.ts';
+import { providers } from './credentials.ts';
+import { createTpm } from './tpm.ts';
 import { createSessions } from './sessions.ts';
 import { createSettings } from './settings.ts';
 
@@ -20,11 +22,15 @@ const emit = (event: BackendEvent) => send({ event });
 const dataDir = process.argv.at(-1)!;
 
 const { renamed, ...sessions } = createSessions(emit);
+const settings = createSettings(dataDir, emit);
+const { provider: tpm, ...tpmMethods } = createTpm(settings.settings);
+providers.tpm = tpm;
 const handle = serve(
   {
     ...sessions,
-    ...createSettings(dataDir, emit),
+    ...settings,
     ...createConfigStore(emit, renamed),
+    ...tpmMethods,
   },
   send,
 );

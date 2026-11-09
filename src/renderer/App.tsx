@@ -184,7 +184,11 @@ export function App({
       if (halted.current.get(id) === 'dropped') reconnecting.current.add(id);
       halted.current.delete(id);
       backend.restart(id);
-      updateTab(id, { exit: undefined, disconnected: undefined });
+      updateTab(id, {
+        exit: undefined,
+        disconnected: undefined,
+        useUser: undefined,
+      });
       terms.current.get(id)?.focus();
     },
     [backend],
@@ -264,7 +268,7 @@ export function App({
             term.write(note(`── reconnected ${clock()} ──`));
           settle(event.tab);
         } else if (event.type === 'dropped') {
-          const { tab, reason, final } = event;
+          const { tab, reason, final, user } = event;
           const offer = 'Press R to reconnect, or click Reconnect';
           term.write(
             note(
@@ -277,7 +281,10 @@ export function App({
           );
           reconnecting.current.delete(tab);
           halted.current.set(tab, final ? 'final' : 'dropped');
-          updateTab(tab, { disconnected: final ? 'final' : 'retry' });
+          updateTab(tab, {
+            disconnected: final ? 'final' : 'retry',
+            useUser: user,
+          });
           settle(tab);
         } else if (event.code === 0 && !keepAfterExit.current.has(event.tab))
           removeTab(event.tab);
@@ -389,6 +396,21 @@ export function App({
       .catch(fail);
 
   const update = (call: Promise<Tree>) => call.then(setTree, fail);
+
+  /** Saves the username the session's TPM entry names as its `User`, then reconnects the Tab. */
+  const useTpmUser = ({ id, source, useUser }: Tab) => {
+    const alias = source as string;
+    backend
+      .getSession(alias)
+      .then(({ read, ...form }) =>
+        backend.saveSession({ ...form, user: useUser! }, { alias, read }),
+      )
+      .then((next) => {
+        setTree(next);
+        restart(id);
+      })
+      .catch(fail);
+  };
 
   const moveTo = (item: TreeItem) =>
     setMoving({
@@ -811,6 +833,11 @@ export function App({
             </span>
             {activeTab.disconnected === 'retry' && (
               <button onClick={() => restart(activeTab.id)}>Reconnect</button>
+            )}
+            {activeTab.useUser && (
+              <button onClick={() => useTpmUser(activeTab)}>
+                Use {activeTab.useUser}
+              </button>
             )}
             {typeof activeTab.source !== 'string' && (
               <button

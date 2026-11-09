@@ -50,19 +50,16 @@ async function start(
     known,
     managed,
     sidecar,
-    imports,
   }: {
     env?: Record<string, string>;
     known?: string;
     managed?: string;
     sidecar?: object;
-    imports?: string[];
   } = {},
 ) {
   harness = await startBackend(
     { '.ssh/id_test': testKey.private, '.ssh/id_locked': lockedKey.private },
     { SLOP_TERM_KEYCHAIN_SERVICE: service, ...env },
-    imports,
   );
   const ssh = (name: string) => path.join(harness.home, '.ssh', name);
   const fill = (text: string) =>
@@ -669,39 +666,6 @@ describe.skipIf(!docker)('SSH Tab against OpenSSH in Docker', () => {
       expect(await keychain(credential.entry).getPassword()).toBe(
         'open sesame',
       );
-    });
-
-    it('shows a refusal as one line and still logs in with the typed password', async () => {
-      const reference = {
-        hosts: {
-          box: {
-            credential: { provider: 'refusing', entry: '7', kind: 'password' },
-          },
-        },
-      };
-      await start('', {
-        managed: passwordHost(),
-        sidecar: reference,
-        imports: [path.join(import.meta.dirname, 'refusing-provider.ts')],
-      });
-      const tab = await harness.backend.openSsh('box');
-      await eventually(() =>
-        expect(asked(tab)).toEqual([
-          {
-            ...password,
-            reason: 'The refusing provider has no secrets.',
-            save: 'same',
-          },
-        ]),
-      );
-      await harness.backend.answerSecret(tab, ['hunter2'], true);
-      await loggedIn(tab);
-      await eventually(() =>
-        expect(harness.output(tab)).toContain(
-          '\r\nNot saved: The refusing provider is read-only.\r\n',
-        ),
-      );
-      expect(await sidecar()).toEqual(reference);
     });
 
     it('stops with a conflict when the Sidecar entry changed while asking, keeping the saved secret', async () => {

@@ -37,6 +37,8 @@ export type Settings = {
   editor?: string;
   /** How far a coloured Tab's backgrounds mix toward its Session colour, in percent. 0 turns the tint off. */
   sessionColourTint: number;
+  /** The TPM address up to and including `index.php`, as `https://tpm.example.com/index.php`. Unset means TPM isn't set up on this machine. */
+  tpmUrl?: string;
 };
 
 /** Flat lists in file order: the UI builds the folders and sorts. */
@@ -137,6 +139,12 @@ export type SessionDefaults = {
   identityFile: string;
 };
 
+/** A TPM password entry as a search lists it, without its secret. `id` is the Credential reference's `entry`. */
+export type TpmEntry = { id: string; name: string; username: string };
+
+/** `keys` is why TPM needs the user's HMAC API keys before it can answer. */
+export type TpmFind = { entries: TpmEntry[] } | { keys: string };
+
 /** One line of a Test's checklist. */
 export type TestStep = {
   label: string;
@@ -230,6 +238,10 @@ export interface Backend {
     aliases: string[],
     deleteSecrets: boolean,
   ): Promise<SessionTree>;
+  /** A pasted TPM URL or numeric id reads that entry once; any other text searches TPM. */
+  findTpm(query: string): Promise<TpmFind>;
+  /** Saves the user's TPM HMAC API keys in the keychain, replacing any saved before. */
+  setTpmKeys(publicKey: string, privateKey: string): Promise<void>;
   /** Copies a Hand-written host's block from `~/.ssh/config` into the Managed config. */
   moveIn(alias: string): Promise<SessionTree>;
   /** Comments out a Managed host's copy in `~/.ssh/config` under a `# moved to slop-term.conf` marker. */
@@ -269,8 +281,11 @@ export type BackendEvent =
   | { type: 'exit'; tab: TabId; code: number }
   /** An SSH Tab logged in. */
   | { type: 'connected'; tab: TabId }
-  /** An SSH Tab's connection ended without its shell exiting. `final` means a reconnect can't help: the Tab can only close. */
-  | { type: 'dropped'; tab: TabId; reason: string; final?: true }
+  /**
+   * An SSH Tab's connection ended without its shell exiting. `final` means a reconnect can't help: the Tab can only close.
+   * `user` is the username the session's TPM entry names, which the UI offers to save as the session's `User`.
+   */
+  | { type: 'dropped'; tab: TabId; reason: string; final?: true; user?: string }
   /** For both questions, none means the connection closed and the open question is void. */
   | { type: 'hostKey'; tab: TabId; question?: HostKeyQuestion }
   | { type: 'secret'; tab: TabId; question?: SecretQuestion }
@@ -340,6 +355,8 @@ const methods: { [M in keyof Backend]: true } = {
   deleteFolder: true,
   moveIn: true,
   commentOut: true,
+  findTpm: true,
+  setTpmKeys: true,
 };
 
 export function serve(backend: Backend, send: (message: Message) => void) {

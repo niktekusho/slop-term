@@ -1,17 +1,38 @@
 import { AsyncEntry } from '@napi-rs/keyring';
-import type { CredentialReference } from '../shared/ipc.ts';
+import type { CredentialReference, SecretQuestion } from '../shared/ipc.ts';
+
+/** `username` is the account the entry names, if the provider stores one, so a connect can check it. */
+export type ProviderRead = { secret: string; username?: string };
 
 /** Every method can fail or refuse: it rejects with an Error whose message the user can read. */
 export type CredentialProvider = {
-  read(ref: CredentialReference): Promise<string>;
+  read(ref: CredentialReference): Promise<ProviderRead>;
   write(ref: CredentialReference, secret: string): Promise<void>;
   delete(ref: CredentialReference): Promise<void>;
 };
 
+/** A provider rejects a read with this when it needs its own login first, as TPM needs API keys: the app asks `prompts` and passes the answers to `login`. */
+export class LoginNeeded extends Error {
+  readonly title: string;
+  readonly prompts: SecretQuestion['prompts'];
+  readonly login: (answers: string[]) => Promise<void>;
+  constructor(
+    reason: string,
+    title: string,
+    prompts: SecretQuestion['prompts'],
+    login: (answers: string[]) => Promise<void>,
+  ) {
+    super(reason);
+    this.title = title;
+    this.prompts = prompts;
+    this.login = login;
+  }
+}
+
 // Tests point the keychain at a service of their own.
 const service = process.env.SLOP_TERM_KEYCHAIN_SERVICE || 'slop-term';
-const entry = (id: string) => new AsyncEntry(service, id);
-const keychainError = (e: Error): never => {
+export const entry = (id: string) => new AsyncEntry(service, id);
+export const keychainError = (e: Error): never => {
   throw new Error(`Keychain: ${e.message}`);
 };
 
@@ -20,7 +41,7 @@ const keychain: CredentialProvider = {
     const secret = await entry(ref.entry).getPassword().catch(keychainError);
     if (secret === null)
       throw new Error(`No saved ${ref.kind} in the keychain on this machine.`);
-    return secret;
+    return { secret };
   },
   async write(ref, secret) {
     await entry(ref.entry).setPassword(secret).catch(keychainError);
@@ -50,7 +71,7 @@ export async function newKeychainEntry(name: string) {
   }
 }
 
-/** Keyed by `CredentialReference.provider`. Tests add fakes before the back end starts. */
+/** Keyed by `CredentialReference.provider`. The back end adds TPM once it has the settings. */
 export const providers: Record<string, CredentialProvider> = { keychain };
 
 /** A reference synced from a newer slop-term can name a provider this one lacks. */

@@ -104,6 +104,10 @@ export const inFolder = (path: string, folder: string) =>
 export const deletable = (ref: CredentialReference) =>
   ref.provider === 'keychain';
 
+/** Why a connect with a TPM reference stops: the entry names another account than the session logs in as. */
+export const usernameMismatch = (entryUser: string, user: string) =>
+  `TPM entry says ${entryUser}, this Saved session says ${user}.`;
+
 /** `ssh -G` sees every line of a block, so these three in an option row would hide behind the command line's values. */
 const commandLineKeys = new Set(['hostname', 'port', 'user']);
 

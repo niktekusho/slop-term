@@ -19,6 +19,8 @@ import {
   type SessionTree,
   type TabId,
   type TestStep,
+  type TpmEntry,
+  type TpmFind,
 } from '../shared/ipc.ts';
 import { HostKeyPrompt } from './HostKeyPrompt.tsx';
 import { SecretPrompt } from './SecretPrompt.tsx';
@@ -30,6 +32,7 @@ import {
   optionProblem,
   sameEntry,
   takenNames,
+  usernameMismatch,
 } from '../shared/session-rules.ts';
 import { optionDescriptions } from './option-descriptions.ts';
 
@@ -125,7 +128,8 @@ function SecretOffer({
         secret, so it stays.
       </p>
     );
-  if (!deletable(credential)) return null;
+  if (!deletable(credential))
+    return <p className="note">The TPM entry stays in TPM.</p>;
   return (
     <label className="check">
       <input
@@ -197,15 +201,116 @@ function SetSecret({
   );
 }
 
+/** Finds a TPM entry by pasted URL, id or search, and asks for the API keys when TPM needs them. */
+function TpmFinder({
+  backend,
+  onAttach,
+}: {
+  backend: BackendClient;
+  onAttach(entry: TpmEntry): void;
+}) {
+  const [query, setQuery] = useState('');
+  const [found, setFound] = useState<TpmFind>();
+  const [error, setError] = useState<string>();
+  const [publicKey, setPublicKey] = useState('');
+  const [privateKey, setPrivateKey] = useState('');
+  const find = () => {
+    setError(undefined);
+    backend.findTpm(query).then(setFound, (e: Error) => {
+      setFound(undefined);
+      setError(e.message);
+    });
+  };
+  return (
+    <div role="tabpanel">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          find();
+        }}
+      >
+        <input
+          aria-label="TPM URL, id or search"
+          autoFocus
+          spellCheck={false}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />{' '}
+        <button type="submit" disabled={!query.trim()}>
+          Find
+        </button>
+      </form>
+      {error && (
+        <p role="alert" className="problem">
+          {error}
+        </p>
+      )}
+      {found && 'keys' in found && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            backend
+              .setTpmKeys(publicKey, privateKey)
+              .then(find, (e: Error) => setError(e.message));
+          }}
+        >
+          <p className="note">{found.keys}</p>
+          <label className="field">
+            <span>Public key</span>
+            <input
+              spellCheck={false}
+              value={publicKey}
+              onChange={(e) => setPublicKey(e.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>Private key</span>
+            <input
+              type="password"
+              value={privateKey}
+              onChange={(e) => setPrivateKey(e.target.value)}
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={!publicKey.trim() || !privateKey.trim()}
+          >
+            Save keys
+          </button>
+        </form>
+      )}
+      {found &&
+        'entries' in found &&
+        (found.entries.length ? (
+          <ul className="choices">
+            {found.entries.map((entry) => (
+              <li key={entry.id}>
+                <button onClick={() => onAttach(entry)}>
+                  {entry.name} <span className="detail">{entry.username}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="note">No TPM entry matches.</p>
+        ))}
+    </div>
+  );
+}
+
 function AttachSecret({
+  backend,
   sessions,
   onAttach,
   onCancel,
 }: {
+  backend: BackendClient;
   sessions: { alias: string; credential: CredentialReference }[];
-  onAttach(credential: CredentialReference): void;
+  /** `tpmEntry` is the TPM entry attached, which names its username. */
+  onAttach(credential: CredentialReference, tpmEntry?: TpmEntry): void;
   onCancel(): void;
 }) {
+  const [tab, setTab] = useState<'tpm' | 'same'>('same');
   const [query, setQuery] = useState('');
   const shown = sessions.filter((s) => s.alias.includes(query.toLowerCase()));
   return (
@@ -216,33 +321,58 @@ function AttachSecret({
       onKeyDown={closeOnEscape(onCancel)}
     >
       <div role="tablist" className="tabs">
-        <button role="tab" aria-selected="true">
+        <button
+          role="tab"
+          aria-selected={tab === 'tpm'}
+          onClick={() => setTab('tpm')}
+        >
+          TPM
+        </button>
+        <button
+          role="tab"
+          aria-selected={tab === 'same'}
+          onClick={() => setTab('same')}
+        >
           Same secret as…
         </button>
       </div>
-      <div role="tabpanel">
-        <input
-          type="search"
-          aria-label="Search"
-          autoFocus
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
+      {tab === 'tpm' ? (
+        <TpmFinder
+          backend={backend}
+          onAttach={(entry) =>
+            onAttach(
+              { provider: 'tpm', entry: entry.id, kind: 'password' },
+              entry,
+            )
+          }
         />
-        {shown.length ? (
-          <ul className="choices">
-            {shown.map((s) => (
-              <li key={s.alias}>
-                <button onClick={() => onAttach(s.credential)}>
-                  {s.alias}{' '}
-                  <span className="detail">{kindLabel(s.credential.kind)}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="note">No other Saved session has a secret.</p>
-        )}
-      </div>
+      ) : (
+        <div role="tabpanel">
+          <input
+            type="search"
+            aria-label="Search"
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          {shown.length ? (
+            <ul className="choices">
+              {shown.map((s) => (
+                <li key={s.alias}>
+                  <button onClick={() => onAttach(s.credential)}>
+                    {s.alias}{' '}
+                    <span className="detail">
+                      {kindLabel(s.credential.kind)}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="note">No other Saved session has a secret.</p>
+          )}
+        </div>
+      )}
       <div className="actions">
         <button onClick={onCancel}>Cancel</button>
       </div>
@@ -310,6 +440,7 @@ export function SessionDialog({
   const [removed, setRemoved] = useState<CredentialReference>();
   const [dropRemoved, setDropRemoved] = useState(false);
   const [popover, setPopover] = useState<'set' | 'attach'>();
+  const [tpmEntry, setTpmEntry] = useState<TpmEntry>();
   const [added, setAdded] = useState<number>();
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
@@ -344,6 +475,20 @@ export function SessionDialog({
       live = false;
     };
   }, [backend, form.alias, options]);
+
+  // The entry's username can change in TPM after the attach. A failed read shows nothing: a connect shows the reason.
+  const openedWith = start.form.credential;
+  useEffect(() => {
+    if (openedWith?.provider !== 'tpm') return;
+    let live = true;
+    backend.findTpm(openedWith.entry).then(
+      (found) => live && 'entries' in found && setTpmEntry(found.entries[0]),
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [backend, openedWith]);
 
   // Closing the dialog stops a running Test.
   useEffect(() => {
@@ -405,6 +550,18 @@ export function SessionDialog({
       setRemoved(form.credential);
     update({ credential: undefined });
   };
+
+  // The entry read for an earlier credential no longer applies after a Remove or another attach.
+  const attachedTpm =
+    form.credential?.provider === 'tpm' &&
+    tpmEntry?.id === form.credential.entry
+      ? tpmEntry
+      : undefined;
+  const user = form.user || defaults?.user;
+  const mismatch =
+    attachedTpm?.username && user && attachedTpm.username !== user
+      ? attachedTpm.username
+      : undefined;
 
   // A new or attached secret takes the removed one's place, and its delete offer goes with it.
   const offered = removed && !form.credential && !set ? removed : undefined;
@@ -505,6 +662,14 @@ export function SessionDialog({
             <code>@</code>
             {commandInput('hostname', 'HostName')}
           </div>
+          {mismatch && (
+            <p className="warn">
+              <span>{usernameMismatch(mismatch, user!)}</span>{' '}
+              <button onClick={() => update({ user: mismatch })}>
+                Use {mismatch}
+              </button>
+            </p>
+          )}
           {windowsPath(form.identityFile) && (
             <p className="warn">
               This key path won't work on macOS. A key in your home folder syncs
@@ -577,7 +742,7 @@ export function SessionDialog({
             {set
               ? `New ${kindLabel(set.kind).toLowerCase()}, saved to keychain on Save`
               : form.credential
-                ? `${kindLabel(form.credential.kind)} in ${form.credential.provider}: ${form.credential.entry}`
+                ? `${kindLabel(form.credential.kind)} in ${form.credential.provider === 'tpm' ? 'TPM' : form.credential.provider}: ${attachedTpm ? `${attachedTpm.name} (${attachedTpm.id})` : form.credential.entry}`
                 : 'None. slop-term asks when it connects.'}
           </span>{' '}
           <button onClick={() => setPopover('set')}>Set secret…</button>{' '}
@@ -595,10 +760,15 @@ export function SessionDialog({
           )}
           {popover === 'attach' && (
             <AttachSecret
+              backend={backend}
               sessions={attachable}
-              onAttach={(credential) => {
+              onAttach={(credential, entry) => {
                 setSet(undefined);
-                update({ credential });
+                update({
+                  credential,
+                  ...(entry?.username && { user: entry.username }),
+                });
+                setTpmEntry(entry);
                 setPopover(undefined);
               }}
               onCancel={() => setPopover(undefined)}
