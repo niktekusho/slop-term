@@ -104,14 +104,13 @@ function parse(raw: Record<string, unknown>): Settings {
 
 // A list entry without a usable path is skipped.
 function database(raw: unknown): Settings['keepassDatabases'] {
-  const { name, path: file, keyFile } = (raw ?? {}) as Record<string, unknown>;
+  const { name, path: file } = (raw ?? {}) as Record<string, unknown>;
   if (typeof file !== 'string' || !file.trim()) return [];
   const own = typeof name === 'string' && name.trim();
   return [
     {
       name: own || path.parse(file.trim().replaceAll('\\', '/')).name,
       path: file.trim(),
-      ...(typeof keyFile === 'string' && keyFile.trim() && { keyFile }),
     },
   ];
 }

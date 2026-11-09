@@ -1,26 +1,16 @@
-import { act, render, screen, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { act, screen, within } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
-import { App } from './App.tsx';
-import type {
-  CredentialReference,
-  SavedSession,
-  SessionTree,
-} from '../shared/ipc.ts';
-import { FakeBackend } from './fake-backend.ts';
-
-type User = ReturnType<typeof userEvent.setup>;
-
-const tree = () => screen.getByRole('navigation', { name: 'Session tree' });
-const row = (name: string) =>
-  [...tree().querySelectorAll<HTMLElement>('.row')].find(
-    (r) => r.textContent === name,
-  )!;
-const dialog = () => screen.getByRole('dialog', { name: /SSH session|Edit/ });
-const field = (name: string) => within(dialog()).getByRole('textbox', { name });
-const button = (name: string) => within(dialog()).getByRole('button', { name });
-const popover = () =>
-  screen.getByRole('dialog', { name: 'Attach existing secret' });
+import type { CredentialReference, SavedSession } from '../shared/ipc.ts';
+import {
+  button,
+  dialog,
+  field,
+  newSession,
+  popover,
+  row,
+  setup,
+  type User,
+} from './test-utils.tsx';
 
 const tpmRef: CredentialReference = {
   provider: 'tpm',
@@ -40,32 +30,6 @@ const tpmSession = (user: string): SavedSession => ({
   credential: tpmRef,
   read: 'read-db',
 });
-
-async function setup(
-  sessions: SessionTree['sessions'] = [{ alias: 'db' }],
-  stored: Record<string, SavedSession> = {},
-) {
-  const backend = new FakeBackend();
-  backend.tree = {
-    folders: [],
-    sessions,
-    handWritten: [],
-    localShells: [],
-    warnings: [],
-  };
-  backend.savedSessions = stored;
-  const user = userEvent.setup();
-  render(<App backend={backend} mac={false} />);
-  await vi.waitFor(() => expect(row(sessions[0].alias)).toBeDefined());
-  return { backend, user };
-}
-
-async function newSession(user: User) {
-  await user.click(screen.getByRole('button', { name: 'New' }));
-  await user.click(screen.getByRole('menuitem', { name: 'SSH session' }));
-  await user.type(field('Alias'), 'web');
-  await user.type(field('HostName'), 'web.lan');
-}
 
 async function findInTpm(user: User, query: string) {
   await user.click(button('Attach existing…'));

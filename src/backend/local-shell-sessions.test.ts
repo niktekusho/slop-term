@@ -1,8 +1,8 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { LocalShellForm } from '../shared/ipc.ts';
-import { startBackend } from './harness.ts';
+import { eventually, startBackend } from './harness.ts';
 
 let harness: Awaited<ReturnType<typeof startBackend>>;
 afterEach(() => harness.stop());
@@ -217,8 +217,6 @@ describe('Local shell sessions in folders', () => {
 
 describe('opening a Local shell session', () => {
   const win = process.platform === 'win32';
-  const eventually = (assertion: () => void) =>
-    vi.waitFor(assertion, { timeout: 15_000 });
 
   it('runs the command through each shell this machine has, in its start folder', async () => {
     const backend = await start();

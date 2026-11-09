@@ -55,7 +55,6 @@ const entryRef = /^(.+)\/([0-9a-f]{32})$/;
 
 const notSetUp = (name: string) =>
   new Error(`KeePass database \`${name}\` isn't set up on this machine.`);
-const keyFiles = new Error("Key files aren't supported yet.");
 
 /** The groups below `root` with their `/`-joined paths, the Recycle Bin and what is in it left out. */
 function* groupsOf(
@@ -101,7 +100,6 @@ export function createKeepass(
       (d) => d.name === name,
     );
     if (!found) throw notSetUp(name);
-    if (found.keyFile) throw keyFiles;
     return found;
   }
 
@@ -287,16 +285,14 @@ export function createKeepass(
       const lockedNames: string[] = [];
       const needle = query.trim().toLowerCase();
       const exact = query.trim().match(entryRef);
-      for (const { name, keyFile } of (await settings()).keepassDatabases) {
+      for (const { name } of (await settings()).keepassDatabases) {
         if (exact && exact[1] !== name) continue;
         let state: Open;
         try {
-          if (keyFile) throw keyFiles;
           state = await current(name);
         } catch (e) {
-          if (e instanceof LoginNeeded || e === keyFiles)
-            lockedNames.push(name);
-          else throw e;
+          if (!(e instanceof LoginNeeded)) throw e;
+          lockedNames.push(name);
           continue;
         }
         for (const [group, entry] of entriesOf(state.db)) {

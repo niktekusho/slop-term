@@ -2,18 +2,12 @@ import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { utils } from 'ssh2';
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  describe,
-  expect,
-  it,
-  vi,
-} from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { CredentialReference, SessionForm, TabId } from '../shared/ipc.ts';
 import {
+  eventually,
   findKeychainCredentials,
+  includeManaged,
   keychainEntry,
   startBackend,
 } from './harness.ts';
@@ -27,9 +21,6 @@ import {
 
 let harness: Awaited<ReturnType<typeof startBackend>>;
 afterEach(() => harness.stop());
-
-const eventually = (assertion: () => void) =>
-  vi.waitFor(assertion, { timeout: 15_000 });
 
 const knownHosts = () => path.join(harness.home, '.ssh', 'known_hosts');
 // OpenSSH expands `~` from the account, not from the temp HOME: test configs name files by absolute path.
@@ -64,8 +55,7 @@ async function start(
   const ssh = (name: string) => path.join(harness.home, '.ssh', name);
   const fill = (text: string) =>
     text.replaceAll('$KNOWN', quoted(knownHosts()));
-  // OpenSSH reads `Include ~/...` from the account home, so the test names the Managed config by its full path.
-  const include = managed ? `Include ${quoted(ssh('slop-term.conf'))}\n` : '';
+  const include = managed ? includeManaged(harness.home) : '';
   if (managed) await writeFile(ssh('slop-term.conf'), fill(managed));
   if (sidecar) await writeFile(ssh('slop-term.json'), JSON.stringify(sidecar));
   await writeFile(ssh('config'), include + fill(config));

@@ -1,19 +1,13 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  describe,
-  expect,
-  it,
-  vi,
-} from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { TabId } from '../shared/ipc.ts';
 import {
+  eventually,
   findKeychainCredentials,
   keychainEntry,
   startBackend,
+  writeBox,
 } from './harness.ts';
 import { startFakeSshServer } from './ssh-server.ts';
 import { startFakeTpm } from './tpm-server.ts';
@@ -126,33 +120,14 @@ describe('connecting with a TPM reference', () => {
     ssh.users.length = 0;
   });
 
-  const eventually = (assertion: () => void) =>
-    vi.waitFor(assertion, { timeout: 15_000 });
-
   /** A Managed host `box` that logs in as `user` with the password in TPM entry `id`. */
   async function managed(id: number, user: string, tpmUrl = tpm.url) {
     await start({ tpmUrl });
-    const file = (name: string) => path.join(harness.home, '.ssh', name);
-    await mkdir(path.dirname(file('config')), { recursive: true });
-    await writeFile(
-      file('slop-term.conf'),
-      [
-        'Host box',
-        '  HostName 127.0.0.1',
-        `  Port ${ssh.port}`,
-        `  User ${user}`,
-        '  IdentityFile ~/.ssh/missing',
-        '  UserKnownHostsFile /dev/null',
-        '  StrictHostKeyChecking no',
-        '',
-      ].join('\n'),
-    );
-    await writeFile(file('slop-term.json'), JSON.stringify(sidecar(id)));
-    // OpenSSH reads `Include ~/...` from the account home, so the test names the Managed config by its full path.
-    await writeFile(
-      file('config'),
-      `Include "${file('slop-term.conf').replaceAll('\\', '/')}"\n`,
-    );
+    await writeBox(harness.home, {
+      port: ssh.port,
+      user,
+      sidecar: sidecar(id),
+    });
   }
   const sidecar = (id: number) => ({
     hosts: {
@@ -161,12 +136,8 @@ describe('connecting with a TPM reference', () => {
       },
     },
   });
-  const asked = (tab: TabId) =>
-    harness.events.flatMap((e) =>
-      e.type === 'secret' && e.tab === tab ? [e.question] : [],
-    );
-  const dropped = (tab: TabId) =>
-    harness.events.filter((e) => e.type === 'dropped' && e.tab === tab);
+  const asked = (tab: TabId) => harness.asked(tab);
+  const dropped = (tab: TabId) => harness.dropped(tab);
   const loggedIn = (tab: TabId) =>
     eventually(() => expect(harness.output(tab)).toContain('$ '));
   const password = {

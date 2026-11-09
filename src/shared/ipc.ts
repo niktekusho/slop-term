@@ -45,12 +45,8 @@ export type Settings = {
   keepassLastGroup?: KeepassTarget;
 };
 
-/** `name` defaults to the file name without its extension. A `keyFile` marks a database that needs one, which slop-term v1 can't open. */
-export type KeepassDatabaseSetting = {
-  name: string;
-  path: string;
-  keyFile?: string;
-};
+/** `name` defaults to the file name without its extension. */
+export type KeepassDatabaseSetting = { name: string; path: string };
 
 /** A group of a KeePass database. `group` joins its names with `/` below the root group; '' is the root group. */
 export type KeepassTarget = { database: string; group: string };

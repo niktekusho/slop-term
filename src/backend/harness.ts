@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import electronPath from 'electron';
+import { vi } from 'vitest';
 import {
   createClient,
   type BackendEvent,
@@ -49,6 +50,45 @@ export const findKeychainCredentials = (
   service: string,
 ): Promise<{ account: string; password: string }[]> =>
   keychainTool('find', service);
+
+/** Retries `assertion` for 15 s: Electron starts slowly when several test files run at once. */
+export const eventually = (assertion: () => void | Promise<void>) =>
+  vi.waitFor(assertion, { timeout: 15_000 });
+
+/**
+ * Two lines include the Managed config because the `ssh` on PATH differs by machine.
+ * Git for Windows' reads `~` from HOME and takes `C:/…` as relative. Windows OpenSSH reads either.
+ * macOS OpenSSH reads `~` from the account, not HOME, so it needs the full path.
+ */
+export const includeManaged = (home: string) =>
+  `Include ~/.ssh/slop-term.conf\nInclude "${path.join(home, '.ssh', 'slop-term.conf').replaceAll('\\', '/')}"\n`;
+
+/**
+ * Writes Managed host `box`, which reaches a fake SSH server on `port` as `user`, and `sidecar` as the Sidecar file.
+ * `~/.ssh/config` includes the Managed config.
+ */
+export async function writeBox(
+  home: string,
+  { port, user, sidecar }: { port: number; user: string; sidecar: object },
+) {
+  const ssh = (name: string) => path.join(home, '.ssh', name);
+  await mkdir(path.dirname(ssh('config')), { recursive: true });
+  await writeFile(
+    ssh('slop-term.conf'),
+    [
+      'Host box',
+      '  HostName 127.0.0.1',
+      `  Port ${port}`,
+      `  User ${user}`,
+      '  IdentityFile ~/.ssh/missing',
+      '  UserKnownHostsFile /dev/null',
+      '  StrictHostKeyChecking no',
+      '',
+    ].join('\n'),
+  );
+  await writeFile(ssh('slop-term.json'), JSON.stringify(sidecar));
+  await writeFile(ssh('config'), includeManaged(home));
+}
 
 /**
  * Vitest's Node and Electron's Node have different V8 serialization versions:
@@ -96,6 +136,8 @@ export async function startBackend(
     (listener) => child.on('message', (m) => listener(m as Message)),
   );
   backend.onEvent((event) => events.push(event));
+  // The spawn event comes before the back end has created `~/.ssh` and its include line. An answer means its startup is done.
+  await backend.settings();
 
   return {
     backend,
@@ -105,6 +147,13 @@ export async function startBackend(
       events
         .flatMap((e) => (e.type === 'output' && e.tab === tab ? e.data : []))
         .join(''),
+    /** The secret questions the Tab (or Test) asked so far. */
+    asked: (tab: TabId) =>
+      events.flatMap((e) =>
+        e.type === 'secret' && e.tab === tab && e.question ? [e.question] : [],
+      ),
+    dropped: (tab: TabId) =>
+      events.filter((e) => e.type === 'dropped' && e.tab === tab),
     async stop() {
       if (child.exitCode === null && child.signalCode === null) {
         const exited = new Promise((resolve) => child.once('exit', resolve));

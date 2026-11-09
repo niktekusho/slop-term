@@ -1,16 +1,13 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { startBackend } from './harness.ts';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { eventually, startBackend } from './harness.ts';
 
 let harness: Awaited<ReturnType<typeof startBackend>>;
 beforeEach(async () => {
   harness = await startBackend();
 });
 afterEach(() => harness.stop());
-
-const eventually = (assertion: () => void) =>
-  vi.waitFor(assertion, { timeout: 10_000 });
 
 const settingsFile = () => path.join(harness.home, 'settings.json');
 const settingsEvents = () =>

@@ -1,28 +1,23 @@
-import { act, render, screen, within } from '@testing-library/react';
+import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { App } from './App.tsx';
 import type {
   CredentialReference,
   KeepassDatabase,
   KeepassEntry,
   SavedSession,
-  SessionTree,
 } from '../shared/ipc.ts';
-import { FakeBackend } from './fake-backend.ts';
-
-type User = ReturnType<typeof userEvent.setup>;
-
-const tree = () => screen.getByRole('navigation', { name: 'Session tree' });
-const row = (name: string) =>
-  [...tree().querySelectorAll<HTMLElement>('.row')].find(
-    (r) => r.textContent === name,
-  )!;
-const dialog = () => screen.getByRole('dialog', { name: /SSH session|Edit/ });
-const field = (name: string) => within(dialog()).getByRole('textbox', { name });
-const button = (name: string) => within(dialog()).getByRole('button', { name });
-const popover = () =>
-  screen.getByRole('dialog', { name: 'Attach existing secret' });
+import {
+  button,
+  dialog,
+  field,
+  newSession,
+  popover,
+  row,
+  setup,
+  tree,
+  type User,
+} from './test-utils.tsx';
 
 const id = `work/${'a'.repeat(32)}`;
 const keepassRef: CredentialReference = {
@@ -56,34 +51,6 @@ const keepassSession = (user: string): SavedSession => ({
   credential: keepassRef,
   read: 'read-db',
 });
-
-async function setup(
-  sessions: SessionTree['sessions'] = [{ alias: 'db' }],
-  stored: Record<string, SavedSession> = {},
-  patch: Partial<SessionTree> = {},
-) {
-  const backend = new FakeBackend();
-  backend.tree = {
-    folders: [],
-    sessions,
-    handWritten: [],
-    localShells: [],
-    warnings: [],
-    ...patch,
-  };
-  backend.savedSessions = stored;
-  const user = userEvent.setup();
-  render(<App backend={backend} mac={false} />);
-  await vi.waitFor(() => expect(row(sessions[0].alias)).toBeDefined());
-  return { backend, user };
-}
-
-async function newSession(user: User) {
-  await user.click(screen.getByRole('button', { name: 'New' }));
-  await user.click(screen.getByRole('menuitem', { name: 'SSH session' }));
-  await user.type(field('Alias'), 'web');
-  await user.type(field('HostName'), 'web.lan');
-}
 
 async function openKeepassTab(user: User) {
   await user.click(button('Attach existing…'));

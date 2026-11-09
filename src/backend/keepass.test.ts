@@ -1,18 +1,10 @@
-import { mkdir, readdir, readFile, utimes, writeFile } from 'node:fs/promises';
+import { readdir, readFile, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { argon2d, argon2id } from 'hash-wasm';
 import kdbxweb from 'kdbxweb';
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  describe,
-  expect,
-  it,
-  vi,
-} from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { TabId } from '../shared/ipc.ts';
-import { startBackend } from './harness.ts';
+import { eventually, startBackend, writeBox } from './harness.ts';
 import { startFakeSshServer } from './ssh-server.ts';
 
 const { Credentials, CryptoEngine, Kdbx, ProtectedValue } = kdbxweb;
@@ -85,7 +77,7 @@ let harness: Awaited<ReturnType<typeof startBackend>>;
 afterEach(() => harness.stop());
 
 /** Starts a back end whose `settings.json` lists the database file `work.kdbx` in its home folder. */
-async function start(fixture: Fixture = {}, extra: object = {}) {
+async function start(fixture: Fixture = {}) {
   const { bytes, ids } = await database(fixture);
   // The file path is known only after the home folder exists, so the settings are written after the start.
   harness = await startBackend();
@@ -93,14 +85,10 @@ async function start(fixture: Fixture = {}, extra: object = {}) {
   await writeFile(file, bytes);
   await writeFile(
     path.join(harness.home, 'settings.json'),
-    JSON.stringify({ keepassDatabases: [{ path: file, ...extra }] }),
+    JSON.stringify({ keepassDatabases: [{ path: file }] }),
   );
-  await vi.waitFor(
-    async () =>
-      expect((await harness.backend.settings()).keepassDatabases).toHaveLength(
-        1,
-      ),
-    { timeout: 15_000 },
+  await eventually(async () =>
+    expect((await harness.backend.settings()).keepassDatabases).toHaveLength(1),
   );
   return { file, ids };
 }
@@ -218,29 +206,14 @@ describe('connecting with a KeePass reference', () => {
     ssh.users.length = 0;
   });
 
-  const eventually = (assertion: () => void | Promise<void>) =>
-    vi.waitFor(assertion, { timeout: 15_000 });
   const file = (name: string) => path.join(harness.home, '.ssh', name);
 
   /** A Managed host `box` in `folder` that logs in as `user` with the password of the KeePass entry `entry`, if any. */
-  async function managed(entry: string | undefined, user: string, folder = '') {
-    await mkdir(path.dirname(file('config')), { recursive: true });
-    await writeFile(
-      file('slop-term.conf'),
-      [
-        'Host box',
-        '  HostName 127.0.0.1',
-        `  Port ${ssh.port}`,
-        `  User ${user}`,
-        '  IdentityFile ~/.ssh/missing',
-        '  UserKnownHostsFile /dev/null',
-        '  StrictHostKeyChecking no',
-        '',
-      ].join('\n'),
-    );
-    await writeFile(
-      file('slop-term.json'),
-      JSON.stringify({
+  const managed = (entry: string | undefined, user: string, folder = '') =>
+    writeBox(harness.home, {
+      port: ssh.port,
+      user,
+      sidecar: {
         folders: folder ? [folder] : [],
         hosts: {
           box: {
@@ -250,20 +223,10 @@ describe('connecting with a KeePass reference', () => {
             }),
           },
         },
-      }),
-    );
-    // Windows OpenSSH resolves `~` from USERPROFILE and not a quoted `C:/` path; macOS resolves `~` from the account and not HOME.
-    await writeFile(
-      file('config'),
-      `Include ~/.ssh/slop-term.conf\nInclude "${file('slop-term.conf').replaceAll('\\', '/')}"\n`,
-    );
-  }
-  const asked = (tab: TabId) =>
-    harness.events.flatMap((e) =>
-      e.type === 'secret' && e.tab === tab && e.question ? [e.question] : [],
-    );
-  const dropped = (tab: TabId) =>
-    harness.events.filter((e) => e.type === 'dropped' && e.tab === tab);
+      },
+    });
+  const asked = (tab: TabId) => harness.asked(tab);
+  const dropped = (tab: TabId) => harness.dropped(tab);
   const loggedIn = (tab: TabId) =>
     eventually(() => expect(harness.output(tab)).toContain('$ '));
   const unlockAsk = (reason: string) => ({
@@ -327,18 +290,18 @@ describe('connecting with a KeePass reference', () => {
     );
   });
 
-  it('fails a database that needs a key file with "Key files aren\'t supported yet"', async () => {
-    const { ids } = await start({ keyFile: true }, { keyFile: '~/work.keyx' });
+  it('answers a database that needs a key file as it answers a wrong master password, like other KeePass clients', async () => {
+    const { ids } = await start({ keyFile: true });
     await managed(`work/${ids.prod}`, 'bob');
     const tab = await harness.backend.openSsh('box');
+    await eventually(() => expect(asked(tab)).toEqual([unlockAsk(locked)]));
+    await harness.backend.answerSecret(tab, ['master'], false);
     await eventually(() =>
-      expect(asked(tab).at(-1)).toMatchObject({
-        reason: "Key files aren't supported yet.",
-      }),
+      expect(asked(tab).at(-1)).toEqual(unlockAsk('Wrong master password.')),
     );
     await expect(
       harness.backend.unlockKeepass('work', 'master'),
-    ).rejects.toThrow("Key files aren't supported yet.");
+    ).rejects.toThrow('Wrong master password.');
   });
 
   it("blocks the connect when the entry's username differs from User, before any login", async () => {

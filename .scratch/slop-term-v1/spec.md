@@ -159,7 +159,7 @@ A one-time MobaXterm import shows a preview of every session before writing anyt
 92. As the user, I want writes to reload, apply, write a temp file and rename it over the database, so that KeeWeb merges the change and a crash can't corrupt the file.
 93. As the user, I want to attach an entry by searching title, username, URL and group across unlocked databases, with an "Unlock `<name>`" row per locked one, so that I find entries without their ids.
 94. As the user, I want the same username check for KeePass as for TPM, so that both providers protect me the same way.
-95. As the user, I want a database that needs a key file to fail with "Key files aren't supported yet", so that I know why it won't open.
+95. As the user, I want a database that needs a key file to answer "Wrong master password." like in other KeePass clients, because a `.kdbx` file can't tell a missing key file from a wrong password.
 
 ### Host keys
 
