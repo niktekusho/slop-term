@@ -173,6 +173,21 @@ export type KeepassDatabase = {
 /** `keys` is why TPM needs the user's HMAC API keys before it can answer. */
 export type TpmFind = { entries: TpmEntry[] } | { keys: string };
 
+/** A remote file as the SFTP pane lists it. `modified` is in ms since 1970; `permissions` reads like `ls -l`, as `drwxr-xr-x`. A link to a folder is a folder. */
+export type RemoteFile = {
+  name: string;
+  folder: boolean;
+  size: number;
+  modified: number;
+  permissions: string;
+};
+
+/** What a path takes with it: a folder counts everything inside. */
+export type FileCounts = { files: number; bytes: number };
+
+/** `path` is absolute and resolved. */
+export type Listing = { path: string; files: RemoteFile[] };
+
 /** One line of a Test's checklist. */
 export type TestStep = {
   label: string;
@@ -283,6 +298,17 @@ export interface Backend {
   moveIn(alias: string): Promise<SessionTree>;
   /** Comments out a Managed host's copy in `~/.ssh/config` under a `# moved to slop-term.conf` marker. */
   commentOut(alias: string): Promise<SessionTree>;
+  /**
+   * Lists a folder over the SFTP channel on the Tab's own connection, which the first call opens.
+   * No path is the home folder; a relative one starts there. Rejects while the Tab isn't connected.
+   */
+  listFiles(tab: TabId, path?: string): Promise<Listing>;
+  renameFile(tab: TabId, from: string, to: string): Promise<void>;
+  makeFolder(tab: TabId, path: string): Promise<void>;
+  /** The files and bytes each path takes with it, counting a folder's contents. A link counts as a file and is never followed. */
+  measureFiles(tab: TabId, paths: string[]): Promise<FileCounts[]>;
+  /** Deletes folders with everything inside. A link is deleted, never followed. */
+  deleteFiles(tab: TabId, paths: string[]): Promise<void>;
 }
 
 // Served by the main process: native dialogs exist only there.
@@ -306,9 +332,12 @@ export type ProcessMetrics = {
   memoryKB: number;
 };
 
-/** `folder` is the decoded path from OSC 7; `title` comes from OSC 0 or 2; `address` is an SSH Tab's `user@host`. */
+/**
+ * `folder` is the decoded path from OSC 7 and `host` its hostname. `firstHost` is the hostname of the Tab's first OSC 7: a different `host` means the terminal ran `ssh` onward.
+ * `title` comes from OSC 0 or 2; `address` is an SSH Tab's `user@host`.
+ */
 export type TabUpdate =
-  | { folder: string }
+  | { folder: string; host: string; firstHost: string }
   | { title: string }
   | { address: string };
 
@@ -398,6 +427,11 @@ const methods: { [M in keyof Backend]: true } = {
   keepassDatabases: true,
   unlockKeepass: true,
   lockKeepass: true,
+  listFiles: true,
+  renameFile: true,
+  makeFolder: true,
+  measureFiles: true,
+  deleteFiles: true,
 };
 
 export function serve(backend: Backend, send: (message: Message) => void) {

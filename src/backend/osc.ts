@@ -1,18 +1,19 @@
-import type { TabUpdate } from '../shared/ipc.ts';
-
 // oxlint-disable-next-line no-control-regex -- OSC sequences are made of control characters.
 const osc = /\x1b\](\d*);([^\x07\x1b]*)(?:\x07|\x1b\\)/g;
 
-function pathOf(fileUrl: string) {
+function placeOf(fileUrl: string) {
   try {
-    return decodeURIComponent(new URL(fileUrl).pathname);
+    const url = new URL(fileUrl);
+    return { folder: decodeURIComponent(url.pathname), host: url.hostname };
   } catch {
     return undefined;
   }
 }
 
-/** Reads the OSC 7 folder and the OSC 0 and 2 title out of terminal output that arrives in chunks. */
-export function oscScanner(onUpdate: (update: TabUpdate) => void) {
+export type OscUpdate = { folder: string; host: string } | { title: string };
+
+/** Reads the OSC 7 folder and hostname and the OSC 0 and 2 title out of terminal output that arrives in chunks. */
+export function oscScanner(onUpdate: (update: OscUpdate) => void) {
   let rest = '';
   return (data: string) => {
     const text = rest + data;
@@ -20,9 +21,9 @@ export function oscScanner(onUpdate: (update: TabUpdate) => void) {
     for (const m of text.matchAll(osc)) {
       end = m.index + m[0].length;
       const [, code, value] = m;
-      const path = code === '7' ? pathOf(value) : undefined;
+      const place = code === '7' ? placeOf(value) : undefined;
       if (code === '0' || code === '2') onUpdate({ title: value });
-      else if (path !== undefined) onUpdate({ folder: path });
+      else if (place) onUpdate(place);
     }
     // A sequence cut by the chunk end waits for the next chunk. The cap drops one that never ends.
     const tail = text.slice(end);

@@ -398,7 +398,13 @@ describe.skipIf(!docker)('SSH Tab against OpenSSH in Docker', () => {
       expect(harness.events).toEqual(
         expect.arrayContaining([
           { type: 'tab', tab, address: 'test@127.0.0.1' },
-          { type: 'tab', tab, folder: '/home/test' },
+          {
+            type: 'tab',
+            tab,
+            folder: '/home/test',
+            host: 'box',
+            firstHost: 'box',
+          },
           { type: 'exit', tab, code: 4 },
         ]),
       ),

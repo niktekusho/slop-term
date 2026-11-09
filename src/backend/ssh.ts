@@ -45,6 +45,7 @@ import {
   savedKeys,
 } from './known-hosts.ts';
 import { resolve } from './resolver.ts';
+import { sftpFiles } from './sftp.ts';
 
 export type SshTab = {
   write(data: string): void;
@@ -53,7 +54,12 @@ export type SshTab = {
   answerSecret(answers: string[] | null, save: boolean | KeepassTarget): void;
   close(): void;
   keepalive(): void;
+  /** The SFTP pane's files, over a channel on this connection that the first call opens. */
+  files(): Promise<SftpFiles>;
 };
+
+type SftpFiles = ReturnType<typeof sftpFiles>;
+export const notConnected = () => new Error('The Tab is not connected.');
 
 /** A Test connects with a dialog's unsaved values: `options` are its lines, passed to `ssh -G` as `-o`. */
 export type TestPlan = {
@@ -151,6 +157,9 @@ export function openSshTab(
   let answer: ((trust: boolean) => void) | undefined;
   let reply: ((reply?: Reply) => void) | undefined;
   let closed = false;
+  let files: Promise<SftpFiles> | undefined;
+  // Set on login, before the shell opens: the pane may ask as soon as the `connected` event arrives.
+  let ready = false;
 
   const print = (text: string) =>
     emit({ type: 'output', tab, data: `\r\n${text}\r\n` });
@@ -208,6 +217,19 @@ export function openSshTab(
       const internals = client as unknown as Internals;
       internals._callbacks.push(() => {});
       internals._protocol.ping();
+    },
+    files() {
+      if (!ready || closed) return Promise.reject(notConnected());
+      // A failed open isn't kept, so the next call tries again.
+      files ??= new Promise<SftpFiles>((resolve, reject) =>
+        client.sftp((err, sftp) =>
+          err ? reject(err) : resolve(sftpFiles(sftp)),
+        ),
+      ).catch((e) => {
+        files = undefined;
+        throw e;
+      });
+      return files;
     },
   };
 
@@ -538,6 +560,7 @@ export function openSshTab(
             close();
           });
         }
+        ready = true;
         // Comes first, so the UI's reconnect divider sits above the save messages.
         emit({ type: 'connected', tab });
         // A second keyboard-interactive round means the first prompt wasn't the whole login.

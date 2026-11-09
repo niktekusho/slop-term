@@ -58,7 +58,7 @@ describe('local shells', () => {
     await eventually(() =>
       expect(harness.events).toEqual(
         expect.arrayContaining([
-          { type: 'tab', tab, folder },
+          { type: 'tab', tab, folder, host: 'h', firstHost: 'h' },
           { type: 'tab', tab, title: 'slop-title' },
         ]),
       ),

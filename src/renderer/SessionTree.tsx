@@ -22,6 +22,9 @@ export type Tab = {
   source: string | Shell;
   local?: true;
   folder?: string;
+  /** The hostnames of the last and the first OSC 7. */
+  host?: string;
+  firstHost?: string;
   title?: string;
   address?: string;
   exit?: number;
@@ -55,14 +58,14 @@ const namesShell = (title: string) =>
     title,
   );
 
-const icon = (className: string, shape: ReactNode) => (
+export const icon = (className: string, shape: ReactNode) => (
   <svg className={`icon ${className}`} viewBox="0 0 16 16" aria-hidden="true">
     {shape}
   </svg>
 );
 
 const chevron = icon('chevron', <path d="M6 4l4 4-4 4" />);
-const folderIcon = icon(
+export const folderIcon = icon(
   'folder-icon',
   <path d="M1.5 3.5h4l1.5 1.5h7.5v7.5h-13z" />,
 );

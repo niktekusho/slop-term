@@ -8,6 +8,7 @@ const shortcuts = {
   find: { code: 'KeyF', macShift: false },
   duplicate: { code: 'KeyD', macShift: false },
   close: { code: 'KeyW', macShift: false },
+  sftp: { code: 'KeyB', macShift: false },
 };
 
 // Zoom and settings take plain Ctrl and match the typed character with any Shift: `=` is Shift+0 on the Italian layout.

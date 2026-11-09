@@ -5,8 +5,10 @@ import {
   type BackendClient,
   type BackendEvent,
   type KeepassDatabase,
+  type FileCounts,
   type KeepassFind,
   type ProcessMetrics,
+  type RemoteFile,
   type Request,
   type SavedLocalShell,
   type SavedSession,
@@ -52,6 +54,11 @@ export class FakeBackend implements BackendClient {
   /** The databases this machine has. None means "Save to" offers no KeePass. */
   keepassDbs: KeepassDatabase[] = [];
   keepassPassword = 'master';
+  /** The remote files of every SFTP pane, by absolute folder path. A listing with no path starts at `remoteHome`. */
+  remote: Record<string, RemoteFile[]> = { '/home/me': [] };
+  remoteHome = '/home/me';
+  /** What `measureFiles` answers per path; a path without one is a single file of 0 bytes. */
+  measures: Record<string, FileCounts> = {};
   private listeners = new Set<(event: BackendEvent) => void>();
   private nextTab = 1;
   private holds = new Map<keyof Backend, Promise<void>>();
@@ -327,6 +334,64 @@ export class FakeBackend implements BackendClient {
 
   async lockKeepass() {
     this.requests.push({ method: 'lockKeepass', args: [] });
+  }
+
+  async listFiles(...args: Parameters<Backend['listFiles']>) {
+    this.requests.push({ method: 'listFiles', args });
+    const [, path = this.remoteHome] = args;
+    const at = path.startsWith('/') ? path : `${this.remoteHome}/${path}`;
+    const files = this.remote[at];
+    if (!files) throw new Error(`No such file: ${at}`);
+    return { path: at, files };
+  }
+
+  /** Changes `remote`, so the pane's next listing shows the result. */
+  private inFolder(
+    path: string,
+    change: (files: RemoteFile[], name: string) => RemoteFile[],
+  ) {
+    const slash = path.lastIndexOf('/');
+    const folder = path.slice(0, slash) || '/';
+    this.remote[folder] = change(
+      this.remote[folder] ?? [],
+      path.slice(slash + 1),
+    );
+  }
+
+  async renameFile(...args: Parameters<Backend['renameFile']>) {
+    this.requests.push({ method: 'renameFile', args });
+    const [, from, to] = args;
+    const moved = to.slice(to.lastIndexOf('/') + 1);
+    this.inFolder(from, (files, name) =>
+      files.map((f) => (f.name === name ? { ...f, name: moved } : f)),
+    );
+  }
+
+  async makeFolder(...args: Parameters<Backend['makeFolder']>) {
+    this.requests.push({ method: 'makeFolder', args });
+    this.inFolder(args[1], (files, name) => [
+      ...files,
+      {
+        name,
+        folder: true,
+        size: 4096,
+        modified: 0,
+        permissions: 'drwxr-xr-x',
+      },
+    ]);
+  }
+
+  async measureFiles(...args: Parameters<Backend['measureFiles']>) {
+    this.requests.push({ method: 'measureFiles', args });
+    return args[1].map((p) => this.measures[p] ?? { files: 1, bytes: 0 });
+  }
+
+  async deleteFiles(...args: Parameters<Backend['deleteFiles']>) {
+    this.requests.push({ method: 'deleteFiles', args });
+    for (const path of args[1])
+      this.inFolder(path, (files, name) =>
+        files.filter((f) => f.name !== name),
+      );
   }
 
   async pickKeyFile() {

@@ -57,6 +57,7 @@ import {
 import { headerColours, terminalOptions } from './look.ts';
 import { HostKeyPrompt } from './HostKeyPrompt.tsx';
 import { SecretPrompt } from './SecretPrompt.tsx';
+import { expandIcon, SftpPane } from './SftpPane.tsx';
 import {
   DeleteSession,
   freeAlias,
@@ -128,6 +129,8 @@ export function App({
   const [reconnectingAll, setReconnectingAll] = useState(false);
   const treeMenuRef = useRef<HTMLUListElement>(null);
   const [profiling, setProfiling] = useState(false);
+  // Open or collapsed for the whole window, not per Tab.
+  const [paneOpen, setPaneOpen] = useState(true);
   const [settings, setSettings] = useState<Settings>(defaultSettings);
   const [tree, setTree] = useState(emptyTree);
   const [query, setQuery] = useState('');
@@ -594,6 +597,7 @@ export function App({
       if (!shortcut || terminalShortcut(shortcut)) return;
       e.preventDefault();
       if (shortcut === 'profiling') setProfiling((p) => !p);
+      else if (shortcut === 'sftp') setPaneOpen((o) => !o);
       else if (shortcut === 'settings') backend.openSettings();
       else if (shortcut === 'filter') filter.current?.focus();
       else if (shortcut === 'newTab') {
@@ -916,6 +920,39 @@ export function App({
           />
         )}
       </main>
+      <aside
+        className={paneOpen ? 'sftp' : 'sftp collapsed'}
+        aria-label="SFTP pane"
+        hidden={!activeTab}
+        inert={modal}
+        style={{ background: optionsFor(activeColour).theme?.background }}
+      >
+        {!paneOpen && activeTab && (
+          <button
+            className="sftp-strip"
+            title="Open the SFTP pane"
+            onClick={() => setPaneOpen(true)}
+          >
+            {expandIcon}
+            <span>
+              {['SFTP', activeTab.address?.split('@').at(-1)]
+                .filter(Boolean)
+                .join(' · ')}
+            </span>
+          </button>
+        )}
+        {tabs.map((tab) => (
+          <SftpPane
+            key={tab.id}
+            backend={backend}
+            tab={tab}
+            shown={paneOpen && tab.id === active}
+            mac={mac}
+            theme={optionsFor(colourOf(tab)).theme!}
+            onCollapse={() => setPaneOpen(false)}
+          />
+        ))}
+      </aside>
       <ProfilingPanel profiler={backend} open={profiling} />
       {dialog && (
         <SessionDialog

@@ -10,9 +10,15 @@ import { shellMissing } from '../shared/session-rules.ts';
 import { blockLines, localShell } from './config-store.ts';
 import { detectShells, spawnLine } from './shells.ts';
 import { oscScanner } from './osc.ts';
-import { openSshTab, type TabMemory } from './ssh.ts';
+import {
+  notConnected,
+  openSshTab,
+  type SshTab,
+  type TabMemory,
+} from './ssh.ts';
 
 type Tab = {
+  files?: SshTab['files'];
   write(data: string): void;
   resize(size: TerminalSize): void;
   close(): void;
@@ -62,6 +68,11 @@ export function createSessions(emit: (event: BackendEvent) => void): Pick<
   | 'resize'
   | 'wake'
   | 'testSession'
+  | 'listFiles'
+  | 'renameFile'
+  | 'makeFolder'
+  | 'measureFiles'
+  | 'deleteFiles'
 > & {
   /** Points the SSH Tabs of a renamed Saved session at its new alias, so a reconnect finds it. */
   renamed(from: string, to: string): void;
@@ -70,10 +81,19 @@ export function createSessions(emit: (event: BackendEvent) => void): Pick<
   // A Tab keeps its opener after it exits, so a restart opens the same thing again.
   const openers = new Map<TabId, Open>();
   const targets = new Map<TabId, { alias: string }>();
+  // Kept across reconnects: the first OSC 7 names the host the Tab's pane browses.
+  const firstHosts = new Map<TabId, string>();
   let nextTab = 1;
 
+  const files = (tab: TabId) =>
+    tabs.get(tab)?.files?.() ?? Promise.reject(notConnected());
+
   const start = (tab: TabId, open: Open) => {
-    const scan = oscScanner((update) => emit({ type: 'tab', tab, ...update }));
+    const scan = oscScanner((update) => {
+      if (!('host' in update)) return emit({ type: 'tab', tab, ...update });
+      if (!firstHosts.has(tab)) firstHosts.set(tab, update.host);
+      emit({ type: 'tab', tab, ...update, firstHost: firstHosts.get(tab)! });
+    });
     const send = (event: BackendEvent) => {
       emit(event);
       if (event.type === 'output') scan(event.data);
@@ -147,6 +167,7 @@ export function createSessions(emit: (event: BackendEvent) => void): Pick<
     async close(tab) {
       openers.delete(tab);
       targets.delete(tab);
+      firstHosts.delete(tab);
       tabs.get(tab)?.close();
     },
 
@@ -166,5 +187,11 @@ export function createSessions(emit: (event: BackendEvent) => void): Pick<
     async wake() {
       for (const tab of tabs.values()) tab.keepalive?.();
     },
+
+    listFiles: async (tab, path) => (await files(tab)).list(path),
+    renameFile: async (tab, from, to) => (await files(tab)).rename(from, to),
+    makeFolder: async (tab, path) => (await files(tab)).makeFolder(path),
+    measureFiles: async (tab, paths) => (await files(tab)).measure(paths),
+    deleteFiles: async (tab, paths) => (await files(tab)).remove(paths),
   };
 }

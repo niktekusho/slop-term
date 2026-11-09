@@ -758,7 +758,15 @@ describe('exit rule', () => {
   it('keeps a Tab that exits with a non-zero code until R restarts it', async () => {
     const { backend, user, newLocalShell } = setup();
     await newLocalShell('zsh');
-    act(() => backend.emit({ type: 'tab', tab: 'tab-1', folder: '/src' }));
+    act(() =>
+      backend.emit({
+        type: 'tab',
+        tab: 'tab-1',
+        folder: '/src',
+        host: 'mac',
+        firstHost: 'mac',
+      }),
+    );
     act(() => backend.emit({ type: 'exit', tab: 'tab-1', code: 2 }));
 
     expect(row('zsh src exit 2').querySelector('.exit-icon')).not.toBeNull();
