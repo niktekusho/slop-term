@@ -331,8 +331,15 @@ describe('drop and reconnect against an in-process server', () => {
 });
 
 const docker = await dockerRunning();
-if (!docker)
-  console.warn('Docker is not running: skipping the SSH server tests.');
+// A skipped group hides in a passing run, so a local run without Docker fails here. CI and the opt-out skip.
+it.skipIf(docker || !!process.env.CI || !!process.env.SLOP_TERM_SKIP_DOCKER)(
+  'has Docker running for the OpenSSH tests',
+  () => {
+    throw new Error(
+      'Docker is not running, so the OpenSSH tests below skip. Start Docker Desktop, or set SLOP_TERM_SKIP_DOCKER=1.',
+    );
+  },
+);
 
 describe.skipIf(!docker)('SSH Tab against OpenSSH in Docker', () => {
   let server: Awaited<ReturnType<typeof startSshServer>>;
