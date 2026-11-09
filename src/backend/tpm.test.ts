@@ -1,6 +1,5 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { findCredentialsAsync, AsyncEntry } from '@napi-rs/keyring';
 import {
   afterAll,
   afterEach,
@@ -11,7 +10,11 @@ import {
   vi,
 } from 'vitest';
 import type { TabId } from '../shared/ipc.ts';
-import { startBackend } from './harness.ts';
+import {
+  findKeychainCredentials,
+  keychainEntry,
+  startBackend,
+} from './harness.ts';
 import { startFakeSshServer } from './ssh-server.ts';
 import { startFakeTpm } from './tpm-server.ts';
 
@@ -34,8 +37,8 @@ let harness: Awaited<ReturnType<typeof startBackend>>;
 afterEach(async () => {
   await harness.stop();
   tpm.requests.length = 0;
-  for (const { account } of await findCredentialsAsync(service))
-    await new AsyncEntry(service, account).deletePassword();
+  for (const { account } of await findKeychainCredentials(service))
+    await keychainEntry(service, account).deletePassword();
 });
 
 async function start({ files = {}, tpmUrl = tpm.url } = {}) {
@@ -81,7 +84,7 @@ it('asks for the API keys before the first read, and keeps them in the keychain'
   expect(await harness.backend.findTpm('42')).toEqual({
     entries: [listed(42)],
   });
-  expect(await findCredentialsAsync(service)).toHaveLength(1);
+  expect(await findKeychainCredentials(service)).toHaveLength(1);
 });
 
 it('asks for the API keys again after a 401', async () => {
@@ -204,7 +207,7 @@ describe('connecting with a TPM reference', () => {
     );
     await loggedIn(tab);
     expect(asked(tab)).toHaveLength(1);
-    expect(await findCredentialsAsync(service)).toHaveLength(1);
+    expect(await findKeychainCredentials(service)).toHaveLength(1);
   });
 
   it('asks for the keys again in the Tab after a 401', async () => {
