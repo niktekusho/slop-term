@@ -4,6 +4,8 @@ import {
   type Backend,
   type BackendClient,
   type BackendEvent,
+  type KeepassDatabase,
+  type KeepassFind,
   type ProcessMetrics,
   type Request,
   type SavedLocalShell,
@@ -45,6 +47,11 @@ export class FakeBackend implements BackendClient {
   saveError: string | undefined;
   /** What every `findTpm` answers; an Error rejects with its message. */
   tpmFind: TpmFind | Error = { entries: [] };
+  /** What every `findKeepass` answers; an Error rejects with its message. */
+  keepassFind: KeepassFind | Error = { entries: [], locked: [] };
+  /** The databases this machine has. None means "Save to" offers no KeePass. */
+  keepassDbs: KeepassDatabase[] = [];
+  keepassPassword = 'master';
   private listeners = new Set<(event: BackendEvent) => void>();
   private nextTab = 1;
   private holds = new Map<keyof Backend, Promise<void>>();
@@ -295,6 +302,31 @@ export class FakeBackend implements BackendClient {
 
   async setTpmKeys(...args: Parameters<Backend['setTpmKeys']>) {
     this.requests.push({ method: 'setTpmKeys', args });
+  }
+
+  async findKeepass(...args: Parameters<Backend['findKeepass']>) {
+    this.requests.push({ method: 'findKeepass', args });
+    if (this.keepassFind instanceof Error) throw this.keepassFind;
+    return this.keepassFind;
+  }
+
+  async keepassDatabases() {
+    this.requests.push({ method: 'keepassDatabases', args: [] });
+    return this.keepassDbs;
+  }
+
+  /** Unlocks the database when the password is `keepassPassword`, as the real back end does with the right one. */
+  async unlockKeepass(...args: Parameters<Backend['unlockKeepass']>) {
+    this.requests.push({ method: 'unlockKeepass', args });
+    if (args[1] !== this.keepassPassword)
+      throw new Error('Wrong master password.');
+    this.keepassDbs = this.keepassDbs.map((d) =>
+      d.name === args[0] ? { ...d, locked: false } : d,
+    );
+  }
+
+  async lockKeepass() {
+    this.requests.push({ method: 'lockKeepass', args: [] });
   }
 
   async pickKeyFile() {

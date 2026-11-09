@@ -42,6 +42,15 @@ app.whenReady().then(() => {
   powerMonitor.on('resume', () =>
     backend.postMessage({ id: 0, method: 'wake', args: [] } satisfies Request),
   );
+  // An unattended machine must not keep the KeePass databases open.
+  const lockKeepass = () =>
+    backend.postMessage({
+      id: 0,
+      method: 'lockKeepass',
+      args: [],
+    } satisfies Request);
+  powerMonitor.on('suspend', lockKeepass);
+  powerMonitor.on('lock-screen', lockKeepass);
 
   const profiler: Profiler = {
     async metrics() {

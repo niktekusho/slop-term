@@ -1,18 +1,27 @@
 import { useState } from 'react';
-import type { SecretQuestion } from '../shared/ipc.ts';
+import type {
+  BackendClient,
+  KeepassTarget,
+  SecretQuestion,
+} from '../shared/ipc.ts';
+import { SaveTo, type SaveChoice } from './Keepass.tsx';
 
 const saveLabels = { same: 'Save it', update: 'Update saved secret' };
 
 /** Shows over the Tab's terminal. Enter connects; saving is ticked by default. */
 export function SecretPrompt({
+  backend,
   question: q,
   onAnswer,
 }: {
+  backend: BackendClient;
   question: SecretQuestion;
-  onAnswer(answers: string[] | null, save: boolean): void;
+  onAnswer(answers: string[] | null, save: boolean | KeepassTarget): void;
 }) {
   const [answers, setAnswers] = useState(() => q.prompts.map(() => ''));
-  const [save, setSave] = useState(true);
+  // Undefined while KeePass is picked but its database is locked.
+  const [save, setSave] = useState<SaveChoice | undefined>(true);
+  const choice = q.save ? save : false;
 
   return (
     <form
@@ -20,7 +29,7 @@ export function SecretPrompt({
       aria-label="Login"
       onSubmit={(e) => {
         e.preventDefault();
-        onAnswer(answers, !!q.save && save);
+        if (choice !== undefined) onAnswer(answers, choice);
       }}
     >
       <h2>{q.title}</h2>
@@ -39,29 +48,27 @@ export function SecretPrompt({
         </label>
       ))}
       {q.save === 'new' && (
-        <label className="field">
-          <span>Save to</span>
-          <select
-            value={save ? 'keychain' : "don't save"}
-            onChange={(e) => setSave(e.target.value === 'keychain')}
-          >
-            <option>keychain</option>
-            <option>don't save</option>
-          </select>
-        </label>
+        <SaveTo
+          backend={backend}
+          folder={q.folder ?? ''}
+          allowNone
+          onChange={setSave}
+        />
       )}
       {(q.save === 'same' || q.save === 'update') && (
         <label className="check">
           <input
             type="checkbox"
-            checked={save}
+            checked={save === true}
             onChange={(e) => setSave(e.target.checked)}
           />
           {saveLabels[q.save]}
         </label>
       )}
       <div className="actions">
-        <button type="submit">Connect</button>
+        <button type="submit" disabled={choice === undefined}>
+          Connect
+        </button>
         <button type="button" onClick={() => onAnswer(null, false)}>
           Cancel
         </button>

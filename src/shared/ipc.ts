@@ -39,7 +39,21 @@ export type Settings = {
   sessionColourTint: number;
   /** The TPM address up to and including `index.php`, as `https://tpm.example.com/index.php`. Unset means TPM isn't set up on this machine. */
   tpmUrl?: string;
+  /** The KeePass databases this machine has. */
+  keepassDatabases: KeepassDatabaseSetting[];
+  /** The group the last new KeePass entry went to, which the next "Save to" preselects. */
+  keepassLastGroup?: KeepassTarget;
 };
+
+/** `name` defaults to the file name without its extension. A `keyFile` marks a database that needs one, which slop-term v1 can't open. */
+export type KeepassDatabaseSetting = {
+  name: string;
+  path: string;
+  keyFile?: string;
+};
+
+/** A group of a KeePass database. `group` joins its names with `/` below the root group; '' is the root group. */
+export type KeepassTarget = { database: string; group: string };
 
 /** Flat lists in file order: the UI builds the folders and sorts. */
 export type SessionTree = {
@@ -72,6 +86,7 @@ export const defaultSettings: Settings = {
   fontSize: 12,
   scrollback: 1000,
   sessionColourTint: 10,
+  keepassDatabases: [],
 };
 
 /** A host key the user must decide on before an SSH Tab connects. `host` is `hostname:port`. */
@@ -125,9 +140,13 @@ export type LocalShellForm = {
 
 export type SavedLocalShell = LocalShellForm & { read: string };
 
-/** `set` saves a new secret to the keychain and points the session at it. `drop` deletes an entry the form removed, unless another session uses it. */
+/** `set` saves a new secret to the keychain, or to a new entry in the `keepass` group, and points the session at it. `drop` deletes an entry the form removed, unless another session uses it. */
 export type SecretChange = {
-  set?: { kind: CredentialReference['kind']; secret: string };
+  set?: {
+    kind: CredentialReference['kind'];
+    secret: string;
+    keepass?: KeepassTarget;
+  };
   drop?: CredentialReference;
 };
 
@@ -141,6 +160,19 @@ export type SessionDefaults = {
 
 /** A TPM password entry as a search lists it, without its secret. `id` is the Credential reference's `entry`. */
 export type TpmEntry = { id: string; name: string; username: string };
+
+/** A KeePass entry as a search lists it, without its secret. `id` is the Credential reference's `entry`: `<database>/<uuid>`. `name` is its title. */
+export type KeepassEntry = TpmEntry & { group: string; database: string };
+
+/** `locked` names the databases this machine has that a search couldn't open. */
+export type KeepassFind = { entries: KeepassEntry[]; locked: string[] };
+
+/** A database this machine has. A locked one lists no groups. */
+export type KeepassDatabase = {
+  name: string;
+  locked: boolean;
+  groups: string[];
+};
 
 /** `keys` is why TPM needs the user's HMAC API keys before it can answer. */
 export type TpmFind = { entries: TpmEntry[] } | { keys: string };
@@ -159,8 +191,10 @@ export type SecretQuestion = {
   prompts: { prompt: string; echo: boolean }[];
   /** Why the app asks although the session has a Credential reference. */
   reason?: string;
-  /** `new` offers "Save to: keychain / don't save"; `same` saves under the session's reference; `update` replaces its saved secret. */
+  /** `new` offers "Save to: keychain / KeePass / don't save"; `same` saves under the session's reference; `update` replaces its saved secret. */
   save?: 'new' | 'same' | 'update';
+  /** The Saved session's folder, which preselects the KeePass group of a `new` save. */
+  folder?: string;
 };
 
 export interface Backend {
@@ -172,11 +206,11 @@ export interface Backend {
   openSsh(alias: string): Promise<TabId>;
   /** `true` trusts an unknown key, or replaces a changed one. */
   answerHostKey(tab: TabId, trust: boolean): Promise<void>;
-  /** One answer per prompt; `null` cancels the login. `save` follows the question's save offer. */
+  /** One answer per prompt; `null` cancels the login. `save` follows the question's save offer: a group saves a new secret to KeePass, `true` to the keychain. */
   answerSecret(
     tab: TabId,
     answers: string[] | null,
-    save: boolean,
+    save: boolean | KeepassTarget,
   ): Promise<void>;
   /** Ends the Tab's shell or connection. */
   close(tab: TabId): Promise<void>;
@@ -242,6 +276,13 @@ export interface Backend {
   findTpm(query: string): Promise<TpmFind>;
   /** Saves the user's TPM HMAC API keys in the keychain, replacing any saved before. */
   setTpmKeys(publicKey: string, privateKey: string): Promise<void>;
+  /** A pasted `<database>/<uuid>` reads that entry; any other text searches title, username, URL and group of every unlocked database. */
+  findKeepass(query: string): Promise<KeepassFind>;
+  keepassDatabases(): Promise<KeepassDatabase[]>;
+  /** Rejects with "Wrong master password." when it is wrong. */
+  unlockKeepass(name: string, password: string): Promise<void>;
+  /** Locks every database. */
+  lockKeepass(): Promise<void>;
   /** Copies a Hand-written host's block from `~/.ssh/config` into the Managed config. */
   moveIn(alias: string): Promise<SessionTree>;
   /** Comments out a Managed host's copy in `~/.ssh/config` under a `# moved to slop-term.conf` marker. */
@@ -357,6 +398,10 @@ const methods: { [M in keyof Backend]: true } = {
   commentOut: true,
   findTpm: true,
   setTpmKeys: true,
+  findKeepass: true,
+  keepassDatabases: true,
+  unlockKeepass: true,
+  lockKeepass: true,
 };
 
 export function serve(backend: Backend, send: (message: Message) => void) {

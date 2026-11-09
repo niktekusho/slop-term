@@ -102,11 +102,23 @@ export const inFolder = (path: string, folder: string) =>
 
 /** TPM entries belong to the team's password manager: the app deletes only secrets it saved itself. */
 export const deletable = (ref: CredentialReference) =>
-  ref.provider === 'keychain';
+  ref.provider === 'keychain' || ref.provider === 'keepass';
 
-/** Why a connect with a TPM reference stops: the entry names another account than the session logs in as. */
-export const usernameMismatch = (entryUser: string, user: string) =>
-  `TPM entry says ${entryUser}, this Saved session says ${user}.`;
+/** The database a KeePass reference's `<database>/<uuid>` names. */
+export const keepassDatabaseOf = (ref: CredentialReference) =>
+  ref.entry.slice(0, ref.entry.lastIndexOf('/'));
+
+export const providerName = (provider: string) =>
+  ({ tpm: 'TPM', keepass: 'KeePass', keychain: 'keychain' })[provider] ??
+  provider;
+
+/** Why a connect with a TPM or KeePass reference stops: the entry names another account than the session logs in as. */
+export const usernameMismatch = (
+  provider: string,
+  entryUser: string,
+  user: string,
+) =>
+  `${providerName(provider)} entry says ${entryUser}, this Saved session says ${user}.`;
 
 /** `ssh -G` sees every line of a block, so these three in an option row would hide behind the command line's values. */
 const commandLineKeys = new Set(['hostname', 'port', 'user']);

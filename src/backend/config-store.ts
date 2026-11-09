@@ -32,7 +32,12 @@ import {
   optionProblem,
   sameEntry,
 } from '../shared/session-rules.ts';
-import { accountName, newKeychainEntry, provider } from './credentials.ts';
+import {
+  accountName,
+  newKeychainEntry,
+  provider,
+  providers,
+} from './credentials.ts';
 import { resolve, type Resolved } from './resolver.ts';
 
 const includeLine = 'Include ~/.ssh/slop-term.conf';
@@ -286,7 +291,11 @@ export function savedSession(alias: string) {
     // The tree shows the warning; a save re-reads the file and reports the reason.
   }
   const entry = sidecarEntry(raw, alias);
-  return { credential: credentialOf(entry), read: JSON.stringify(entry) };
+  return {
+    credential: credentialOf(entry),
+    folder: folderOf(raw, alias),
+    read: JSON.stringify(entry),
+  };
 }
 
 /** A Local shell session, and its Sidecar entry as read now, which a later save or delete checks for conflicts. */
@@ -699,18 +708,27 @@ export function createConfigStore(
       plan(form.credential);
       let credential = form.credential;
       if (secret.set) {
-        const { kind, secret: value } = secret.set;
+        const { kind, secret: value, keepass } = secret.set;
         const keyFile = form.identityFile || r.identityFiles[0] || 'key';
         const name =
           kind === 'password'
             ? accountName(r)
             : `passphrase-${path.basename(keyFile)}`;
-        credential = {
-          provider: 'keychain',
-          entry: await newKeychainEntry(name),
-          kind,
-        };
-        await provider(credential).write(credential, value);
+        if (keepass) {
+          credential = await providers.keepass.create!(
+            keepass,
+            { title: form.alias, username: r.user, url: `ssh://${r.hostname}` },
+            kind,
+            value,
+          );
+        } else {
+          credential = {
+            provider: 'keychain',
+            entry: await newKeychainEntry(name),
+            kind,
+          };
+          await provider(credential).write(credential, value);
+        }
       }
       const { text, raw } = plan(credential);
       writeFileSync(managed, text);

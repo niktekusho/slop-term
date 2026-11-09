@@ -2,6 +2,7 @@ import { spawn } from 'node-pty';
 import type {
   Backend,
   BackendEvent,
+  KeepassTarget,
   TabId,
   TerminalSize,
 } from '../shared/ipc.ts';
@@ -16,7 +17,7 @@ type Tab = {
   resize(size: TerminalSize): void;
   close(): void;
   answerHostKey?(trust: boolean): void;
-  answerSecret?(answers: string[] | null, save: boolean): void;
+  answerSecret?(answers: string[] | null, save: boolean | KeepassTarget): void;
   keepalive?(): void;
 };
 

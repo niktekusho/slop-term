@@ -17,6 +17,7 @@ import type {
   BackendEvent,
   CredentialReference,
   HostKeyQuestion,
+  KeepassTarget,
   SecretQuestion,
   TabId,
   TerminalSize,
@@ -33,6 +34,7 @@ import {
   LoginNeeded,
   newKeychainEntry,
   provider,
+  providers,
   type ProviderRead,
 } from './credentials.ts';
 import {
@@ -48,7 +50,7 @@ export type SshTab = {
   write(data: string): void;
   resize(size: TerminalSize): void;
   answerHostKey(trust: boolean): void;
-  answerSecret(answers: string[] | null, save: boolean): void;
+  answerSecret(answers: string[] | null, save: boolean | KeepassTarget): void;
   close(): void;
   keepalive(): void;
 };
@@ -86,7 +88,7 @@ const algorithms: Record<string, string[]> = {
 type Kind = CredentialReference['kind'];
 /** Secrets the user typed, kept in memory for the Tab's lifetime. Provider secrets are never kept. */
 export type Typed = Partial<Record<Kind, string>>;
-type Reply = { answers: string[]; save: boolean };
+type Reply = { answers: string[]; save: boolean | KeepassTarget };
 
 const nullDevice = (file: string) => /^(\/dev\/null|nul)$/i.test(file);
 
@@ -286,14 +288,24 @@ export function openSshTab(
     const offers: Partial<Record<Kind, SecretQuestion['save']>> = {};
     const fromProvider: Partial<Record<Kind, boolean>> = {};
     const account = accountName(r);
-    type Save = { kind: Kind; secret: string; name: string };
+    /** `to` is the KeePass group the user picked for a new entry; none means the keychain. */
+    type Save = {
+      kind: Kind;
+      secret: string;
+      name: string;
+      to?: KeepassTarget;
+    };
     let toSave: Save | undefined;
 
     type Read = ProviderRead | { reason: string };
-    /** Logs in to the provider first when it asks, as TPM does for its API keys. Undefined means the user cancelled that login. */
+    /**
+     * Logs in to the provider first when it asks, as TPM does for its API keys and KeePass for a master password.
+     * Undefined means the user cancelled that login and the provider has no read to fall back on.
+     */
     async function readRef(
       own: CredentialReference,
     ): Promise<Read | undefined> {
+      let refused: string | undefined;
       for (;;) {
         try {
           return await provider(own).read(own);
@@ -304,10 +316,10 @@ export function openSshTab(
             alias,
             title: e.title,
             prompts: e.prompts,
-            reason: e.message,
+            reason: refused ?? e.message,
           });
-          if (!got) return undefined;
-          await e.login(got.answers);
+          if (!got) return e.cancelled ? { reason: e.cancelled } : undefined;
+          refused = (await e.login(got.answers)) || undefined;
         }
       }
     }
@@ -360,27 +372,47 @@ export function openSshTab(
         ],
         ...(reason && { reason }),
         ...(offers[kind] && { save: offers[kind] }),
+        ...(offers[kind] === 'new' &&
+          session?.folder && { folder: session.folder }),
       });
       if (!got) return undefined;
       const answer = got.answers[0] ?? '';
       typed[kind] = answer;
       toSave =
-        got.save && offers[kind] ? { kind, secret: answer, name } : undefined;
+        got.save && offers[kind]
+          ? {
+              kind,
+              secret: answer,
+              name,
+              ...(typeof got.save === 'object' &&
+                offers[kind] === 'new' && { to: got.save }),
+            }
+          : undefined;
       return answer;
     }
 
     // The secret goes first: a refusal writes nothing else, and a Sidecar conflict keeps the saved secret.
-    async function saveSecret({ kind, secret, name }: Save) {
+    async function saveSecret({ kind, secret, name, to }: Save) {
       try {
-        const target: CredentialReference =
-          ref?.kind === kind
-            ? ref
-            : {
-                provider: 'keychain',
-                entry: await newKeychainEntry(name),
-                kind,
-              };
-        await provider(target).write(target, secret);
+        let target: CredentialReference;
+        if (ref?.kind === kind) {
+          target = ref;
+          await provider(target).write(target, secret);
+        } else if (to) {
+          target = await providers.keepass.create!(
+            to,
+            { title: alias, username, url: `ssh://${r.hostname}` },
+            kind,
+            secret,
+          );
+        } else {
+          target = {
+            provider: 'keychain',
+            entry: await newKeychainEntry(name),
+            kind,
+          };
+          await provider(target).write(target, secret);
+        }
         if (target !== ref) saveCredential(alias, target, session!.read);
       } catch (e) {
         print(`Not saved: ${(e as Error).message}`);
@@ -460,9 +492,10 @@ export function openSshTab(
         const read = await readRef(ref);
         if (!read) return cancelled();
         const named = 'username' in read ? read.username : undefined;
-        // ponytail: only TPM reads a username so far. KeePass (ticket 16) names its own provider here.
         if (named && named !== username) {
-          close(usernameMismatch(named, username), { user: named });
+          close(usernameMismatch(ref.provider, named, username), {
+            user: named,
+          });
           return false as const;
         }
         firstRead = read;

@@ -1,31 +1,52 @@
 import { AsyncEntry } from '@napi-rs/keyring';
-import type { CredentialReference, SecretQuestion } from '../shared/ipc.ts';
+import type {
+  CredentialReference,
+  KeepassTarget,
+  SecretQuestion,
+} from '../shared/ipc.ts';
 
 /** `username` is the account the entry names, if the provider stores one, so a connect can check it. */
 export type ProviderRead = { secret: string; username?: string };
+
+/** What a new entry says about the account it unlocks. */
+export type NewEntry = { title: string; username: string; url: string };
 
 /** Every method can fail or refuse: it rejects with an Error whose message the user can read. */
 export type CredentialProvider = {
   read(ref: CredentialReference): Promise<ProviderRead>;
   write(ref: CredentialReference, secret: string): Promise<void>;
   delete(ref: CredentialReference): Promise<void>;
+  /** Makes a new entry in a place the user picked and returns its reference. Only KeePass has one: a keychain entry needs no place. */
+  create?(
+    target: KeepassTarget,
+    entry: NewEntry,
+    kind: CredentialReference['kind'],
+    secret: string,
+  ): Promise<CredentialReference>;
 };
 
-/** A provider rejects a read with this when it needs its own login first, as TPM needs API keys: the app asks `prompts` and passes the answers to `login`. */
+/**
+ * A provider rejects a read with this when it needs its own login first, as TPM needs API keys and KeePass a master password.
+ * The app asks `prompts` and passes the answers to `login`, which resolves to a reason when it refuses them.
+ */
 export class LoginNeeded extends Error {
   readonly title: string;
   readonly prompts: SecretQuestion['prompts'];
-  readonly login: (answers: string[]) => Promise<void>;
+  readonly login: (answers: string[]) => Promise<string | void>;
+  /** The reason the read fails with when the user cancels the question. Without it, a cancel ends the connect. */
+  readonly cancelled?: string;
   constructor(
     reason: string,
     title: string,
     prompts: SecretQuestion['prompts'],
-    login: (answers: string[]) => Promise<void>,
+    login: (answers: string[]) => Promise<string | void>,
+    cancelled?: string,
   ) {
     super(reason);
     this.title = title;
     this.prompts = prompts;
     this.login = login;
+    this.cancelled = cancelled;
   }
 }
 

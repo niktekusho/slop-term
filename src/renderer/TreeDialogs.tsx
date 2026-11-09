@@ -1,5 +1,7 @@
 import { useState } from 'react';
+import type { BackendClient } from '../shared/ipc.ts';
 import { nameOf } from '../shared/session-rules.ts';
+import { UnlockBeforeDelete } from './Keepass.tsx';
 import { Modal, openTabsNote } from './SessionDialog.tsx';
 
 const folderLabel = (folder: string) =>
@@ -86,23 +88,32 @@ export type FolderContents = {
   aliases: string[];
   subfolders: number;
   openTabs: number;
-  /** Saved secrets that the delete can take: keychain entries that only sessions in the folder use. */
+  /** Saved secrets that the delete can take: keychain and KeePass entries that only sessions in the folder use. */
   secrets: number;
+  /** The KeePass databases those secrets are in. */
+  keepass: string[];
   /** Secrets that stay: TPM entries and entries a session outside the folder shares. */
   kept: number;
 };
 
 export function DeleteFolder({
-  contents: { folder, aliases, subfolders, openTabs, secrets, kept },
+  backend,
+  contents: { folder, aliases, subfolders, openTabs, secrets, keepass, kept },
   onCancel,
   onDelete,
 }: {
+  backend: BackendClient;
   contents: FolderContents;
   onCancel(): void;
   onDelete(deleteSecrets: boolean): Promise<void>;
 }) {
   const [deleteSecrets, setDeleteSecrets] = useState(false);
   const [error, setError] = useState<string>();
+  // KeePass entries can go only from unlocked databases: Delete asks for each master password first.
+  const [unlocking, setUnlocking] = useState(false);
+  const [stays, setStays] = useState(false);
+  const go = (all: boolean) =>
+    onDelete(all).catch((e: Error) => setError(e.message));
   const name = nameOf(folder);
   const parts = [
     count(subfolders, 'subfolder'),
@@ -139,6 +150,22 @@ export function DeleteFolder({
           with a session outside the folder, or kept in TPM.
         </p>
       )}
+      {stays && <p className="note">The KeePass entries stay.</p>}
+      {unlocking && (
+        <UnlockBeforeDelete
+          backend={backend}
+          names={keepass}
+          onUnlocked={() => {
+            setUnlocking(false);
+            void go(true);
+          }}
+          onCancel={() => {
+            setUnlocking(false);
+            setDeleteSecrets(false);
+            setStays(true);
+          }}
+        />
+      )}
       {error && (
         <p role="alert" className="problem">
           {error}
@@ -150,9 +177,12 @@ export function DeleteFolder({
         </button>
         <button
           className="danger"
-          onClick={() =>
-            onDelete(deleteSecrets).catch((e: Error) => setError(e.message))
-          }
+          disabled={unlocking}
+          onClick={() => {
+            setStays(false);
+            if (deleteSecrets && keepass.length) setUnlocking(true);
+            else void go(deleteSecrets);
+          }}
         >
           Delete
         </button>

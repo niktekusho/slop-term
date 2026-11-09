@@ -94,7 +94,26 @@ function parse(raw: Record<string, unknown>): Settings {
     settings.sessionColourTint = tint;
   if (typeof raw.tpmUrl === 'string' && raw.tpmUrl.trim())
     settings.tpmUrl = raw.tpmUrl.trim();
+  if (Array.isArray(raw.keepassDatabases))
+    settings.keepassDatabases = raw.keepassDatabases.flatMap(database);
+  const last = raw.keepassLastGroup as Record<string, unknown> | undefined;
+  if (typeof last?.database === 'string' && typeof last.group === 'string')
+    settings.keepassLastGroup = { database: last.database, group: last.group };
   return settings;
+}
+
+// A list entry without a usable path is skipped.
+function database(raw: unknown): Settings['keepassDatabases'] {
+  const { name, path: file, keyFile } = (raw ?? {}) as Record<string, unknown>;
+  if (typeof file !== 'string' || !file.trim()) return [];
+  const own = typeof name === 'string' && name.trim();
+  return [
+    {
+      name: own || path.parse(file.trim().replaceAll('\\', '/')).name,
+      path: file.trim(),
+      ...(typeof keyFile === 'string' && keyFile.trim() && { keyFile }),
+    },
+  ];
 }
 
 const isPositive = (value: unknown): value is number =>

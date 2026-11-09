@@ -6,6 +6,7 @@ import {
 } from '../shared/ipc.ts';
 import { createConfigStore } from './config-store.ts';
 import { providers } from './credentials.ts';
+import { createKeepass } from './keepass.ts';
 import { createTpm } from './tpm.ts';
 import { createSessions } from './sessions.ts';
 import { createSettings } from './settings.ts';
@@ -25,12 +26,18 @@ const { renamed, ...sessions } = createSessions(emit);
 const settings = createSettings(dataDir, emit);
 const { provider: tpm, ...tpmMethods } = createTpm(settings.settings);
 providers.tpm = tpm;
+const { provider: keepass, ...keepassMethods } = createKeepass(
+  settings.settings,
+  settings.updateSettings,
+);
+providers.keepass = keepass;
 const handle = serve(
   {
     ...sessions,
     ...settings,
     ...createConfigStore(emit, renamed),
     ...tpmMethods,
+    ...keepassMethods,
   },
   send,
 );

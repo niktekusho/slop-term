@@ -11,6 +11,9 @@ import {
   type BackendClient,
   type CredentialReference,
   type HostKeyQuestion,
+  type KeepassEntry,
+  type KeepassFind,
+  type KeepassTarget,
   type SecretChange,
   type SecretQuestion,
   type SessionColour,
@@ -23,13 +26,21 @@ import {
   type TpmFind,
 } from '../shared/ipc.ts';
 import { HostKeyPrompt } from './HostKeyPrompt.tsx';
+import {
+  KeepassFinder,
+  SaveTo,
+  UnlockBeforeDelete,
+  type SaveChoice,
+} from './Keepass.tsx';
 import { SecretPrompt } from './SecretPrompt.tsx';
 import {
   aliasProblem,
   deletable,
   jumpWarning,
+  keepassDatabaseOf,
   optionKey,
   optionProblem,
+  providerName,
   sameEntry,
   takenNames,
   usernameMismatch,
@@ -100,6 +111,23 @@ const sharing = (tree: SessionTree, ref: CredentialReference, own?: string) =>
 const kindLabel = (kind: CredentialReference['kind']) =>
   kind === 'password' ? 'Password' : 'Key passphrase';
 
+/** Where a new secret goes: the keychain, or `KeePass work / Servers`. */
+const savedTo = (keepass?: KeepassTarget) =>
+  keepass
+    ? `KeePass ${[keepass.database, ...keepass.group.split('/').filter(Boolean)].join(' / ')}`
+    : 'keychain';
+
+/** What the Secret row names: the entry's title and where it is, or its raw id before the entry is read. */
+const describe = (
+  ref: CredentialReference,
+  entry?: TpmEntry | KeepassEntry,
+) => {
+  if (!entry) return ref.entry;
+  return 'database' in entry
+    ? `${entry.name} in ${entry.database}`
+    : `${entry.name} (${entry.id})`;
+};
+
 // A Windows path works only on the machine it names. `~/` paths work on both systems.
 const windowsPath = (file: string) => /^[A-Za-z]:|\\/.test(file);
 
@@ -137,22 +165,27 @@ function SecretOffer({
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
       />
-      Also delete the saved secret from keychain
+      Also delete the saved secret from {providerName(credential.provider)}
     </label>
   );
 }
 
 function SetSecret({
+  backend,
+  folder,
   kind: initialKind,
   onSet,
   onCancel,
 }: {
+  backend: BackendClient;
+  folder: string;
   kind: CredentialReference['kind'];
   onSet(set: NonNullable<SecretChange['set']>): void;
   onCancel(): void;
 }) {
   const [kind, setKind] = useState(initialKind);
   const [secret, setSecret] = useState('');
+  const [to, setTo] = useState<SaveChoice>();
   return (
     <form
       className="popover"
@@ -160,7 +193,8 @@ function SetSecret({
       onKeyDown={closeOnEscape(onCancel)}
       onSubmit={(e) => {
         e.preventDefault();
-        onSet({ kind, secret });
+        if (to === undefined) return;
+        onSet({ kind, secret, ...(typeof to === 'object' && { keepass: to }) });
       }}
     >
       <div role="radiogroup" aria-label="Kind" className="switch">
@@ -183,17 +217,21 @@ function SetSecret({
         value={secret}
         onChange={(e) => setSecret(e.target.value)}
       />
-      <label className="inline">
-        Save to
-        <select>
-          <option>keychain</option>
-        </select>
-      </label>
+      <SaveTo
+        backend={backend}
+        folder={folder}
+        allowNone={false}
+        onChange={setTo}
+      />
       <div className="actions">
         <button type="button" onClick={onCancel}>
           Cancel
         </button>
-        <button type="submit" className="primary" disabled={!secret}>
+        <button
+          type="submit"
+          className="primary"
+          disabled={!secret || to === undefined}
+        >
           Set
         </button>
       </div>
@@ -306,11 +344,11 @@ function AttachSecret({
 }: {
   backend: BackendClient;
   sessions: { alias: string; credential: CredentialReference }[];
-  /** `tpmEntry` is the TPM entry attached, which names its username. */
-  onAttach(credential: CredentialReference, tpmEntry?: TpmEntry): void;
+  /** `entry` is the TPM or KeePass entry attached, which names its username. */
+  onAttach(credential: CredentialReference, entry?: TpmEntry): void;
   onCancel(): void;
 }) {
-  const [tab, setTab] = useState<'tpm' | 'same'>('same');
+  const [tab, setTab] = useState<'keepass' | 'tpm' | 'same'>('same');
   const [query, setQuery] = useState('');
   const shown = sessions.filter((s) => s.alias.includes(query.toLowerCase()));
   return (
@@ -321,6 +359,13 @@ function AttachSecret({
       onKeyDown={closeOnEscape(onCancel)}
     >
       <div role="tablist" className="tabs">
+        <button
+          role="tab"
+          aria-selected={tab === 'keepass'}
+          onClick={() => setTab('keepass')}
+        >
+          KeePass
+        </button>
         <button
           role="tab"
           aria-selected={tab === 'tpm'}
@@ -336,7 +381,17 @@ function AttachSecret({
           Same secret as…
         </button>
       </div>
-      {tab === 'tpm' ? (
+      {tab === 'keepass' ? (
+        <KeepassFinder
+          backend={backend}
+          onAttach={(entry) =>
+            onAttach(
+              { provider: 'keepass', entry: entry.id, kind: 'password' },
+              entry,
+            )
+          }
+        />
+      ) : tab === 'tpm' ? (
         <TpmFinder
           backend={backend}
           onAttach={(entry) =>
@@ -440,7 +495,8 @@ export function SessionDialog({
   const [removed, setRemoved] = useState<CredentialReference>();
   const [dropRemoved, setDropRemoved] = useState(false);
   const [popover, setPopover] = useState<'set' | 'attach'>();
-  const [tpmEntry, setTpmEntry] = useState<TpmEntry>();
+  // The TPM or KeePass entry the secret points at, which names its username.
+  const [entry, setEntry] = useState<TpmEntry | KeepassEntry>();
   const [added, setAdded] = useState<number>();
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
@@ -476,13 +532,18 @@ export function SessionDialog({
     };
   }, [backend, form.alias, options]);
 
-  // The entry's username can change in TPM after the attach. A failed read shows nothing: a connect shows the reason.
+  // The entry's username can change in TPM or KeePass after the attach. A failed read shows nothing: a connect shows the reason.
   const openedWith = start.form.credential;
   useEffect(() => {
-    if (openedWith?.provider !== 'tpm') return;
+    if (openedWith?.provider !== 'tpm' && openedWith?.provider !== 'keepass')
+      return;
     let live = true;
-    backend.findTpm(openedWith.entry).then(
-      (found) => live && 'entries' in found && setTpmEntry(found.entries[0]),
+    const read: Promise<TpmFind | KeepassFind> =
+      openedWith.provider === 'tpm'
+        ? backend.findTpm(openedWith.entry)
+        : backend.findKeepass(openedWith.entry);
+    read.then(
+      (found) => live && 'entries' in found && setEntry(found.entries[0]),
       () => {},
     );
     return () => {
@@ -552,15 +613,16 @@ export function SessionDialog({
   };
 
   // The entry read for an earlier credential no longer applies after a Remove or another attach.
-  const attachedTpm =
-    form.credential?.provider === 'tpm' &&
-    tpmEntry?.id === form.credential.entry
-      ? tpmEntry
+  const attached =
+    (form.credential?.provider === 'tpm' ||
+      form.credential?.provider === 'keepass') &&
+    entry?.id === form.credential.entry
+      ? entry
       : undefined;
   const user = form.user || defaults?.user;
   const mismatch =
-    attachedTpm?.username && user && attachedTpm.username !== user
-      ? attachedTpm.username
+    attached?.username && user && attached.username !== user
+      ? attached.username
       : undefined;
 
   // A new or attached secret takes the removed one's place, and its delete offer goes with it.
@@ -664,7 +726,9 @@ export function SessionDialog({
           </div>
           {mismatch && (
             <p className="warn">
-              <span>{usernameMismatch(mismatch, user!)}</span>{' '}
+              <span>
+                {usernameMismatch(form.credential!.provider, mismatch, user!)}
+              </span>{' '}
               <button onClick={() => update({ user: mismatch })}>
                 Use {mismatch}
               </button>
@@ -740,9 +804,9 @@ export function SessionDialog({
         <div className="secret">
           <span>
             {set
-              ? `New ${kindLabel(set.kind).toLowerCase()}, saved to keychain on Save`
+              ? `New ${kindLabel(set.kind).toLowerCase()}, saved to ${savedTo(set.keepass)} on Save`
               : form.credential
-                ? `${kindLabel(form.credential.kind)} in ${form.credential.provider === 'tpm' ? 'TPM' : form.credential.provider}: ${attachedTpm ? `${attachedTpm.name} (${attachedTpm.id})` : form.credential.entry}`
+                ? `${kindLabel(form.credential.kind)} in ${providerName(form.credential.provider)}: ${describe(form.credential, attached)}`
                 : 'None. slop-term asks when it connects.'}
           </span>{' '}
           <button onClick={() => setPopover('set')}>Set secret…</button>{' '}
@@ -750,6 +814,8 @@ export function SessionDialog({
           {(set || form.credential) && <button onClick={remove}>Remove</button>}
           {popover === 'set' && (
             <SetSecret
+              backend={backend}
+              folder={form.folder}
               kind={form.identityFile ? 'passphrase' : 'password'}
               onSet={(next) => {
                 setSet(next);
@@ -762,13 +828,15 @@ export function SessionDialog({
             <AttachSecret
               backend={backend}
               sessions={attachable}
-              onAttach={(credential, entry) => {
+              onAttach={(credential, attachedEntry) => {
                 setSet(undefined);
                 update({
                   credential,
-                  ...(entry?.username && { user: entry.username }),
+                  ...(attachedEntry?.username && {
+                    user: attachedEntry.username,
+                  }),
                 });
-                setTpmEntry(entry);
+                setEntry(attachedEntry);
                 setPopover(undefined);
               }}
               onCancel={() => setPopover(undefined)}
@@ -806,6 +874,7 @@ export function SessionDialog({
               {i === current && test?.secret && (
                 <SecretPrompt
                   question={test.secret}
+                  backend={backend}
                   onAnswer={(answers, save) => {
                     setTest((t) => ({ ...t, secret: undefined }));
                     void backend.answerSecret(testId.current!, answers, save);
@@ -843,6 +912,7 @@ export function SessionDialog({
 }
 
 export function DeleteSession({
+  backend,
   alias,
   credential,
   tree,
@@ -850,6 +920,7 @@ export function DeleteSession({
   onCancel,
   onDelete,
 }: {
+  backend: BackendClient;
   alias: string;
   credential?: CredentialReference;
   tree: SessionTree;
@@ -859,6 +930,11 @@ export function DeleteSession({
 }) {
   const [drop, setDrop] = useState(false);
   const [error, setError] = useState<string>();
+  // A KeePass entry can go only from an unlocked database: Delete asks for the master password first.
+  const [unlocking, setUnlocking] = useState(false);
+  const [stays, setStays] = useState(false);
+  const go = (deleteSecret: boolean) =>
+    onDelete(deleteSecret).catch((e: Error) => setError(e.message));
   return (
     <Modal
       label={`Delete ${alias}`}
@@ -878,6 +954,22 @@ export function DeleteSession({
           onChange={setDrop}
         />
       )}
+      {stays && <p className="note">The KeePass entry stays.</p>}
+      {unlocking && credential && (
+        <UnlockBeforeDelete
+          backend={backend}
+          names={[keepassDatabaseOf(credential)]}
+          onUnlocked={() => {
+            setUnlocking(false);
+            void go(true);
+          }}
+          onCancel={() => {
+            setUnlocking(false);
+            setDrop(false);
+            setStays(true);
+          }}
+        />
+      )}
       {error && (
         <p role="alert" className="problem">
           {error}
@@ -889,9 +981,12 @@ export function DeleteSession({
         </button>
         <button
           className="danger"
-          onClick={() =>
-            onDelete(drop).catch((e: Error) => setError(e.message))
-          }
+          disabled={unlocking}
+          onClick={() => {
+            setStays(false);
+            if (drop && credential?.provider === 'keepass') setUnlocking(true);
+            else void go(drop);
+          }}
         >
           Delete
         </button>

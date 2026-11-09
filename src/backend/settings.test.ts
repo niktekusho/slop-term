@@ -23,7 +23,27 @@ describe('settings', () => {
       fontSize: 12,
       scrollback: 1000,
       sessionColourTint: 10,
+      keepassDatabases: [],
     });
+  });
+
+  it('names a KeePass database after its file unless the list gives a name, and skips an entry without a path', async () => {
+    await writeFile(
+      settingsFile(),
+      JSON.stringify({
+        keepassDatabases: [
+          { path: 'C:\\Users\\me\\OneDrive\\work.kdbx' },
+          { name: 'home', path: '/Users/me/Passwords.kdbx' },
+          { name: 'broken' },
+        ],
+      }),
+    );
+    await eventually(async () =>
+      expect((await harness.backend.settings()).keepassDatabases).toEqual([
+        { name: 'work', path: 'C:\\Users\\me\\OneDrive\\work.kdbx' },
+        { name: 'home', path: '/Users/me/Passwords.kdbx' },
+      ]),
+    );
   });
 
   it('reads a Session colour tint from 0 to 100 and falls back to 10 for anything else', async () => {
@@ -50,6 +70,7 @@ describe('settings', () => {
         fontSize: 12,
         scrollback: 1000,
         sessionColourTint: 10,
+        keepassDatabases: [],
       }),
     );
   });

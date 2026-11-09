@@ -14,6 +14,7 @@ import {
   type BackendClient,
   type CredentialReference,
   type HostKeyQuestion,
+  type KeepassTarget,
   type SecretQuestion,
   type SessionColour,
   type SessionTree as Tree,
@@ -41,6 +42,7 @@ import {
 import {
   deletable,
   inFolder,
+  keepassDatabaseOf,
   nameOf,
   parentOf,
   sameEntry,
@@ -444,10 +446,16 @@ export function App({
     const refs = sessions
       .flatMap((s) => s.credential ?? [])
       .filter((ref, i, all) => !all.slice(0, i).some((r) => sameEntry(r, ref)));
-    const secrets = refs.filter(
+    const goes = refs.filter(
       (ref) =>
         deletable(ref) && !outside.some((s) => sameEntry(s.credential, ref)),
-    ).length;
+    );
+    const secrets = goes.length;
+    const keepass = [
+      ...new Set(
+        goes.filter((r) => r.provider === 'keepass').map(keepassDatabaseOf),
+      ),
+    ];
     const aliases = [
       ...sessions.map((s) => s.alias),
       ...tree.localShells
@@ -461,6 +469,7 @@ export function App({
         (f) => f !== folder && inFolder(f, folder),
       ).length,
       secrets,
+      keepass,
       kept: refs.length - secrets,
       openTabs: tabs.filter(
         (t) => typeof t.source === 'string' && aliases.includes(t.source),
@@ -563,7 +572,7 @@ export function App({
   const answerSecret = (
     tab: TabId,
     answers: string[] | null,
-    save: boolean,
+    save: boolean | KeepassTarget,
   ) => {
     backend.answerSecret(tab, answers, save);
     setSecrets((q) => withQuestion(q, tab));
@@ -687,23 +696,39 @@ export function App({
             ) : treeMenu.folder !== undefined ? (
               folderMenu(treeMenu.folder)
             ) : (
-              <li role="none">
-                <button
-                  role="menuitem"
-                  disabled={
-                    reconnectingAll ||
-                    !tabs.some((t) => t.disconnected === 'retry')
-                  }
-                  onClick={() => {
-                    setTreeMenu(undefined);
-                    // The menu takes the focus with it when it closes.
-                    if (active) terms.current.get(active)?.focus();
-                    reconnectAll();
-                  }}
-                >
-                  Reconnect all disconnected Tabs
-                </button>
-              </li>
+              <>
+                <li role="none">
+                  <button
+                    role="menuitem"
+                    disabled={
+                      reconnectingAll ||
+                      !tabs.some((t) => t.disconnected === 'retry')
+                    }
+                    onClick={() => {
+                      setTreeMenu(undefined);
+                      // The menu takes the focus with it when it closes.
+                      if (active) terms.current.get(active)?.focus();
+                      reconnectAll();
+                    }}
+                  >
+                    Reconnect all disconnected Tabs
+                  </button>
+                </li>
+                {settings.keepassDatabases.length > 0 && (
+                  <li role="none">
+                    <button
+                      role="menuitem"
+                      onClick={() => {
+                        setTreeMenu(undefined);
+                        if (active) terms.current.get(active)?.focus();
+                        void backend.lockKeepass();
+                      }}
+                    >
+                      Lock KeePass
+                    </button>
+                  </li>
+                )}
+              </>
             )}
           </ul>
         )}
@@ -885,6 +910,7 @@ export function App({
         {active && secrets.has(active) && (
           <SecretPrompt
             key={active}
+            backend={backend}
             question={secrets.get(active)!}
             onAnswer={(answers, save) => answerSecret(active, answers, save)}
           />
@@ -935,6 +961,7 @@ export function App({
       )}
       {deleting && (
         <DeleteSession
+          backend={backend}
           {...deleting}
           tree={tree}
           openTabs={tabs.filter((t) => t.source === deleting.alias).length}
@@ -972,6 +999,7 @@ export function App({
       )}
       {deletingFolder && (
         <DeleteFolder
+          backend={backend}
           contents={deletingFolder}
           onCancel={() => setDeletingFolder(undefined)}
           onDelete={async (deleteSecrets) => {
