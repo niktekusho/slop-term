@@ -22,7 +22,19 @@ describe('settings', () => {
       theme: 'system',
       fontSize: 12,
       scrollback: 1000,
+      sessionColourTint: 10,
     });
+  });
+
+  it('reads a Session colour tint from 0 to 100 and falls back to 10 for anything else', async () => {
+    await writeFile(settingsFile(), JSON.stringify({ sessionColourTint: 0 }));
+    await eventually(async () =>
+      expect((await harness.backend.settings()).sessionColourTint).toBe(0),
+    );
+    await writeFile(settingsFile(), JSON.stringify({ sessionColourTint: 101 }));
+    await eventually(async () =>
+      expect((await harness.backend.settings()).sessionColourTint).toBe(10),
+    );
   });
 
   it('sends a settings message when settings.json changes on disk', async () => {
@@ -37,6 +49,7 @@ describe('settings', () => {
         fontFamily: 'Consolas',
         fontSize: 12,
         scrollback: 1000,
+        sessionColourTint: 10,
       }),
     );
   });

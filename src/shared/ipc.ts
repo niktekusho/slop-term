@@ -11,6 +11,19 @@ export type ShellKind = (typeof shellKinds)[number];
 export type Shell =
   | { kind: Exclude<ShellKind, 'wsl'> }
   | { kind: 'wsl'; distro: string };
+export const sessionColours = [
+  'red',
+  'orange',
+  'yellow',
+  'green',
+  'blue',
+  'purple',
+  'pink',
+  'grey',
+] as const;
+export type SessionColour = (typeof sessionColours)[number];
+export const isSessionColour = (value: unknown): value is SessionColour =>
+  sessionColours.includes(value as SessionColour);
 export type TabId = string;
 export type TerminalSize = { cols: number; rows: number };
 
@@ -22,6 +35,8 @@ export type Settings = {
   fontSize: number;
   scrollback: number;
   editor?: string;
+  /** How far a coloured Tab's backgrounds mix toward its Session colour, in percent. 0 turns the tint off. */
+  sessionColourTint: number;
 };
 
 /** Flat lists in file order: the UI builds the folders and sorts. */
@@ -33,6 +48,7 @@ export type SessionTree = {
     alias: string;
     folder?: string;
     credential?: CredentialReference;
+    colour?: SessionColour;
     /** The line of `~/.ssh/config` that also defines this alias. */
     alsoInConfig?: number;
   }[];
@@ -53,6 +69,7 @@ export const defaultSettings: Settings = {
   theme: 'system',
   fontSize: 12,
   scrollback: 1000,
+  sessionColourTint: 10,
 };
 
 /** A host key the user must decide on before an SSH Tab connects. `host` is `hostname:port`. */
@@ -87,6 +104,7 @@ export type SessionForm = {
   /** Every other line of the host block, as `Key value`. */
   options: string[];
   credential?: CredentialReference;
+  colour?: SessionColour;
 };
 
 /** `read` is the session as read now, which a save or delete checks for conflicts. */
@@ -100,6 +118,7 @@ export type LocalShellForm = {
   distro: string;
   startFolder: string;
   command: string;
+  colour?: SessionColour;
 };
 
 export type SavedLocalShell = LocalShellForm & { read: string };

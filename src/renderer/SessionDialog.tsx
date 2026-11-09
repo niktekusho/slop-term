@@ -5,17 +5,20 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
-import type {
-  BackendClient,
-  CredentialReference,
-  HostKeyQuestion,
-  SecretChange,
-  SecretQuestion,
-  SessionDefaults,
-  SessionForm,
-  SessionTree,
-  TabId,
-  TestStep,
+import {
+  isSessionColour,
+  sessionColours,
+  type BackendClient,
+  type CredentialReference,
+  type HostKeyQuestion,
+  type SecretChange,
+  type SecretQuestion,
+  type SessionColour,
+  type SessionDefaults,
+  type SessionForm,
+  type SessionTree,
+  type TabId,
+  type TestStep,
 } from '../shared/ipc.ts';
 import { HostKeyPrompt } from './HostKeyPrompt.tsx';
 import { SecretPrompt } from './SecretPrompt.tsx';
@@ -45,6 +48,37 @@ export const newForm = (folder: string): SessionForm => ({
   identityFile: '',
   options: ['ServerAliveInterval 15'],
 });
+
+/** The Colour row of both Saved session dialogs. */
+export function ColourRow({
+  id,
+  value,
+  onChange,
+}: {
+  id: string;
+  value?: SessionColour;
+  onChange(colour?: SessionColour): void;
+}) {
+  return (
+    <>
+      <label htmlFor={id}>Colour</label>
+      <select
+        id={id}
+        value={value ?? ''}
+        onChange={(e) =>
+          onChange(isSessionColour(e.target.value) ? e.target.value : undefined)
+        }
+      >
+        <option value="">None</option>
+        {sessionColours.map((c) => (
+          <option key={c} value={c}>
+            {c[0].toUpperCase() + c.slice(1)}
+          </option>
+        ))}
+      </select>
+    </>
+  );
+}
 
 /** `<alias>-2`, or the first free number after it. */
 export function freeAlias(alias: string, taken: string[]) {
@@ -443,6 +477,12 @@ export function SessionDialog({
             </option>
           ))}
         </select>
+
+        <ColourRow
+          id="session-colour"
+          value={form.colour}
+          onChange={(colour) => update({ colour })}
+        />
 
         <span className="label">Connect</span>
         <div>

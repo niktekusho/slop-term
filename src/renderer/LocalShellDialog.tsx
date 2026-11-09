@@ -14,7 +14,7 @@ import {
   shellMissing,
   takenNames,
 } from '../shared/session-rules.ts';
-import { Modal } from './SessionDialog.tsx';
+import { ColourRow, Modal } from './SessionDialog.tsx';
 import { folderPaths } from './SessionTree.tsx';
 
 /** `edit` is the session as read when the dialog opened. `tab` is the unsaved Tab a Save keeps, whose shell is fixed. */
@@ -222,6 +222,12 @@ export function LocalShellDialog({
             </option>
           ))}
         </select>
+
+        <ColourRow
+          id="local-colour"
+          value={form.colour}
+          onChange={(colour) => update({ colour })}
+        />
       </div>
       {error && (
         <p role="alert" className="problem">

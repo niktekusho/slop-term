@@ -10,10 +10,12 @@ import { Terminal } from '@xterm/xterm';
 import {
   defaultSettings,
   emptyTree,
+  sessionColours,
   type BackendClient,
   type CredentialReference,
   type HostKeyQuestion,
   type SecretQuestion,
+  type SessionColour,
   type SessionTree as Tree,
   type Settings,
   type Shell,
@@ -50,7 +52,7 @@ import {
   newLocalForm,
   type LocalDialogStart,
 } from './LocalShellDialog.tsx';
-import { terminalOptions } from './look.ts';
+import { headerColours, terminalOptions } from './look.ts';
 import { HostKeyPrompt } from './HostKeyPrompt.tsx';
 import { SecretPrompt } from './SecretPrompt.tsx';
 import {
@@ -137,10 +139,17 @@ export function App({
   );
   const mode =
     settings.theme === 'system' ? (osDark ? 'dark' : 'light') : settings.theme;
-  const options = useMemo(
-    () => terminalOptions(settings, mode),
-    [settings, mode],
-  );
+  // One object per colour, so a re-render doesn't reapply the options to every terminal.
+  const optionsFor = useMemo(() => {
+    const byColour = new Map(
+      [undefined, ...sessionColours].map((c) => [
+        c,
+        terminalOptions(settings, mode, c),
+      ]),
+    );
+    return (colour?: SessionColour) => byColour.get(colour)!;
+  }, [settings, mode]);
+  const options = optionsFor();
 
   useEffect(() => {
     backend.listShells().then(setShells);
@@ -625,6 +634,13 @@ export function App({
   }, [treeMenu]);
 
   const activeTab = tabs.find((t) => t.id === active);
+  // A Hand-written host and an unsaved shell have no colour.
+  const colourOf = (tab?: Tab) =>
+    typeof tab?.source === 'string'
+      ? (tree.sessions.find((s) => s.alias === tab.source)?.colour ??
+        localOf(tab.source)?.colour)
+      : undefined;
+  const activeColour = colourOf(activeTab);
 
   return (
     <div className="window">
@@ -756,6 +772,7 @@ export function App({
           onSelectTab={setActive}
           onOpenSession={openSession}
           shells={shells}
+          mode={mode}
           onSession={(alias, action) => {
             if (action === 'edit') editSession(alias);
             else if (action === 'delete') askDelete(alias);
@@ -780,7 +797,11 @@ export function App({
           </p>
         )}
       </nav>
-      <header className="header" inert={modal}>
+      <header
+        className={activeColour ? 'header coloured' : 'header'}
+        style={activeColour && headerColours(activeColour, mode)}
+        inert={modal}
+      >
         {activeTab && (
           <>
             <span className="name">{tabLabel(activeTab)}</span>
@@ -809,12 +830,20 @@ export function App({
           </>
         )}
       </header>
-      <main className="terminals" inert={modal}>
+      <main
+        className="terminals"
+        style={
+          activeColour && {
+            background: optionsFor(activeColour).theme?.background,
+          }
+        }
+        inert={modal}
+      >
         {tabs.map((tab) => (
           <TerminalView
             key={tab.id}
             term={terms.current.get(tab.id)!}
-            options={options}
+            options={optionsFor(colourOf(tab))}
             active={tab.id === active}
             mac={mac}
           />

@@ -1,7 +1,56 @@
 import type { ITerminalOptions, ITheme } from '@xterm/xterm';
-import { defaultSettings, type Settings } from '../shared/ipc.ts';
+import {
+  defaultSettings,
+  type SessionColour,
+  type Settings,
+} from '../shared/ipc.ts';
 
 export type Mode = 'light' | 'dark';
+
+const shades: Record<SessionColour, Record<Mode, string>> = {
+  red: { dark: '#e5484d', light: '#ce2c31' },
+  orange: { dark: '#f76b15', light: '#c2490c' },
+  yellow: { dark: '#f5d90a', light: '#946800' },
+  green: { dark: '#46a758', light: '#2a7e3b' },
+  blue: { dark: '#3e8bff', light: '#1f5fd6' },
+  purple: { dark: '#a06cf0', light: '#7a3fc6' },
+  pink: { dark: '#e5469f', light: '#c0237f' },
+  grey: { dark: '#8b8d98', light: '#60646c' },
+};
+
+export const sessionShade = (colour: SessionColour, mode: Mode) =>
+  shades[colour][mode];
+
+const channels = (hex: string) =>
+  [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+
+/** `amount` from 0 to 1 moves `from` toward `to`. */
+const mix = (from: string, to: string, amount: number) => {
+  const target = channels(to);
+  return `#${channels(from)
+    .map((c, i) =>
+      Math.round(c + (target[i] - c) * amount)
+        .toString(16)
+        .padStart(2, '0'),
+    )
+    .join('')}`;
+};
+
+// WCAG 2 relative luminance.
+const luminance = (hex: string) => {
+  const [r, g, b] = channels(hex)
+    .map((c) => c / 255)
+    .map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+
+/** The header bar of a Tab with a Session colour: the shade, with black or white text, whichever contrasts more. */
+export function headerColours(colour: SessionColour, mode: Mode) {
+  const background = sessionShade(colour, mode);
+  const l = luminance(background);
+  const white = 1.05 / (l + 0.05) > (l + 0.05) / 0.05;
+  return { background, color: white ? '#ffffff' : '#000000' };
+}
 
 const palettes: Record<Mode, ITheme> = {
   dark: {
@@ -50,12 +99,24 @@ const palettes: Record<Mode, ITheme> = {
   },
 };
 
+/** A Session colour replaces the palette background with the tinted one, which xterm's contrast floor then measures against. */
 export function terminalOptions(
   settings: Settings,
   mode: Mode,
+  colour?: SessionColour,
 ): ITerminalOptions {
+  const palette = palettes[mode];
   return {
-    theme: palettes[mode],
+    theme: colour
+      ? {
+          ...palette,
+          background: mix(
+            palette.background!,
+            sessionShade(colour, mode),
+            settings.sessionColourTint / 100,
+          ),
+        }
+      : palette,
     fontFamily: `${settings.fontFamily ?? '"JetBrains Mono"'}, monospace`,
     // Zoom scales the whole window, so the terminal keeps the default CSS size and the `fontSize` setting sets the zoom factor.
     fontSize: defaultSettings.fontSize,

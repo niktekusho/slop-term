@@ -14,6 +14,7 @@ import {
   joinFolder,
   shellMissing,
 } from '../shared/session-rules.ts';
+import { sessionShade, type Mode } from './look.ts';
 
 /** `source` is the Saved session or Hand-written host a Tab opened, or the shell of an unsaved one. */
 export type Tab = {
@@ -297,6 +298,7 @@ export function SessionTree({
   onSelectFolder,
   query,
   shells,
+  mode,
 }: {
   model: Model;
   tabs: Tab[];
@@ -325,6 +327,7 @@ export function SessionTree({
   query: string;
   /** The shells this machine has; none until the back end answers, which counts every Local shell session as available. */
   shells?: Shell[];
+  mode: Mode;
 }) {
   const [collapsed, setCollapsed] = useState(new Set<string>());
   const dragged = useRef<TreeItem>(undefined);
@@ -347,7 +350,7 @@ export function SessionTree({
     onEditDone(name);
   };
   const [dropTarget, setDropTarget] = useState<string>();
-  const alsoIn = new Map(model.sessions.map((s) => [s.alias, s.alsoInConfig]));
+  const sessions = new Map(model.sessions.map((s) => [s.alias, s]));
   const locals = new Map(model.localShells.map((s) => [s.name, s]));
 
   // Folder rows and the top-level list take drops. The deepest folder under the pointer wins.
@@ -417,6 +420,9 @@ export function SessionTree({
     folder: string | undefined,
   ) => {
     const local = locals.get(alias);
+    const session = sessions.get(alias);
+    const colour = local ? local.colour : session?.colour;
+    const alsoIn = session?.alsoInConfig;
     const unavailable = !!local && !!shells && shellMissing(local, shells);
     const open = () => unavailable || onOpenSession(alias);
     return (
@@ -442,6 +448,12 @@ export function SessionTree({
         >
           <span className="slot" />
           <span className={local ? 'edge local' : 'edge ssh'} />
+          {colour && (
+            <span
+              className="dot"
+              style={{ background: sessionShade(colour, mode) }}
+            />
+          )}
           <span className="name">{alias}</span>
           {unavailable && (
             <>
@@ -452,10 +464,10 @@ export function SessionTree({
             </>
           )}
           {folder === undefined && lock}
-          {alsoIn.get(alias) && (
+          {alsoIn && (
             <span
               className="also"
-              title={`Also defined in ~/.ssh/config line ${alsoIn.get(alias)}`}
+              title={`Also defined in ~/.ssh/config line ${alsoIn}`}
             >
               {warnIcon}
             </span>

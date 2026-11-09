@@ -157,12 +157,13 @@ export class FakeBackend implements BackendClient {
     this.requests.push({ method: 'saveSession', args });
     await this.gate('saveSession');
     if (this.saveError) throw new Error(this.saveError);
-    const [{ alias, folder, credential }, edit] = args;
+    const [{ alias, folder, credential, colour }, edit] = args;
     const others = this.tree.sessions.filter((s) => s.alias !== edit?.alias);
     const saved = {
       alias,
       ...(folder && { folder }),
       ...(credential && { credential }),
+      ...(colour && { colour }),
     };
     this.tree = { ...this.tree, sessions: [...others, saved] };
     return this.tree;

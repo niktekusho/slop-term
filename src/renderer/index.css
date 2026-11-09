@@ -181,6 +181,13 @@ body,
   background: var(--amber);
 }
 
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
 .row.unavailable {
   opacity: 0.45;
 }
@@ -353,6 +360,15 @@ body,
 
 .header .where {
   color: var(--fg-muted);
+}
+
+/* The muted grey can fall below the contrast floor on a shade, and so can any dimming: the picked text colour applies as is. */
+.header.coloured {
+  border-bottom-color: transparent;
+}
+
+.header.coloured .where {
+  color: inherit;
 }
 
 /* The terminal palettes use the canvas colour as their background. */

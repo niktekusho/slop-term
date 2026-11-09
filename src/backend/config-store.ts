@@ -10,11 +10,13 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import SSHConfig, { LineType, type Directive, type Line } from 'ssh-config';
 import {
+  isSessionColour,
   shellKinds,
   type Backend,
   type BackendEvent,
   type CredentialReference,
   type LocalShellForm,
+  type SessionColour,
   type SessionForm,
   type SessionTree,
   type ShellKind,
@@ -144,6 +146,7 @@ function localShellOf(
   if (!entry || !shellKinds.includes(entry.kind as ShellKind)) return undefined;
   const text = (key: string) =>
     typeof entry[key] === 'string' ? entry[key] : '';
+  const colour = colourOf(entry);
   return {
     name,
     folder: text('folder'),
@@ -151,8 +154,18 @@ function localShellOf(
     distro: text('distro'),
     startFolder: text('startFolder'),
     command: text('command'),
+    ...(colour && { colour }),
   };
 }
+
+// A hand-edited colour the app doesn't offer shows as none.
+const colourOf = (entry: Record<string, unknown> | undefined) =>
+  isSessionColour(entry?.colour) ? entry.colour : undefined;
+
+const colourProblem = (colour: string | undefined) =>
+  colour === undefined || isSessionColour(colour)
+    ? undefined
+    : `${colour} is not a Session colour.`;
 
 const localShells = (raw: RawSidecar) =>
   Object.entries(raw.localShells ?? {}).flatMap(
@@ -168,6 +181,7 @@ const shellEntry = (form: LocalShellForm) =>
       startFolder: form.startFolder || undefined,
       command: form.command || undefined,
       folder: form.folder || undefined,
+      colour: form.colour,
     }),
   );
 
@@ -193,6 +207,7 @@ type Sidecar = {
   folders: string[];
   folderOf: (alias: string) => string | undefined;
   credentialOf: (alias: string) => CredentialReference | undefined;
+  colourOf: (alias: string) => SessionColour | undefined;
   localShells: LocalShellForm[];
 };
 
@@ -218,6 +233,7 @@ function readSidecar(file: string, warnings: Set<string>): Sidecar {
     folders: folderList(raw),
     folderOf: (alias) => folderOf(raw, alias),
     credentialOf: (alias) => credentialOf(sidecarEntry(raw, alias)),
+    colourOf: (alias) => colourOf(sidecarEntry(raw, alias)),
     localShells: localShells(raw),
   };
 }
@@ -393,6 +409,7 @@ function formOf(
     else options.push(keyValue(d));
   }
   const credential = credentialOf(entry);
+  const colour = colourOf(entry);
   return {
     alias,
     folder: typeof entry?.folder === 'string' ? entry.folder : '',
@@ -402,6 +419,7 @@ function formOf(
     identityFile: fields.identityFile ?? '',
     options,
     ...(credential && { credential }),
+    ...(colour && { colour }),
   };
 }
 
@@ -505,12 +523,14 @@ export function createConfigStore(
       sessions: sessions.map((alias) => {
         const folder = sidecar.folderOf(alias);
         const credential = sidecar.credentialOf(alias);
+        const colour = sidecar.colourOf(alias);
         // ponytail: a namesake in a file ~/.ssh/config includes gets no warning, since the line edit can't reach it.
         const line = hostLineOf(configLines, alias) + 1;
         return {
           alias,
           ...(folder && { folder }),
           ...(credential && { credential }),
+          ...(colour && { colour }),
           ...(line && { alsoInConfig: line }),
         };
       }),
@@ -612,6 +632,7 @@ export function createConfigStore(
       ].filter((alias) => alias !== edit?.alias);
       const problem =
         aliasProblem(form.alias, taken) ??
+        colourProblem(form.colour) ??
         form.options.map(optionProblem).find(Boolean);
       if (problem) throw new Error(problem);
       const next = blockLines(form);
@@ -654,6 +675,7 @@ export function createConfigStore(
             ...now.entry,
             folder: form.folder || undefined,
             credential,
+            colour: form.colour,
           }),
         );
         const keep = Object.keys(entry).length > 0;
@@ -869,6 +891,7 @@ export function createConfigStore(
       ].filter((name) => name !== edit?.name);
       const problem =
         aliasProblem(form.name, taken) ??
+        colourProblem(form.colour) ??
         (shellKinds.includes(form.kind)
           ? undefined
           : `${form.kind} is not a shell slop-term knows.`);

@@ -20,4 +20,5 @@
 - [ ] A dropped Tab shows a red banner "Disconnected. Reconnect the Tab to browse again." and a greyed list that ignores clicks; after a reconnect the pane reopens at its last folder.
 - [ ] A local shell Tab with no remote host shows "No remote host" and the "type `ssh <host>`" hint (the picker comes in ticket 20).
 - [ ] No permission changes in v1.
+- [ ] A Tab with a Session colour tints the pane background with the same `sessionColourTint` mix as its terminal (`terminalOptions` in `look.ts` from ticket 14), and the header bar spans the terminal and the pane.
 - [ ] Back-end tests against the Docker server: list, rename, delete recursive, new folder, OSC 7 follow and hostname change. UI tests: focus-only keys, inline edit validation, dropped state, collapse.
