@@ -1,13 +1,12 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { utils } from 'ssh2';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { TabId } from '../shared/ipc.ts';
 import { eventually, includeManaged, startBackend } from './harness.ts';
-import { dockerRunning, startSshServer } from './ssh-server.ts';
+import { dockerRunning, startSshServer, testKeyPair } from './ssh-server.ts';
 
 const docker = await dockerRunning();
-const testKey = utils.generateKeyPairSync('ed25519');
+const testKey = testKeyPair();
 
 describe.skipIf(!docker)('SFTP pane against OpenSSH in Docker', () => {
   let server: Awaited<ReturnType<typeof startSshServer>>;

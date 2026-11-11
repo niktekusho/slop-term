@@ -10,6 +10,7 @@ import {
   type Settings,
 } from '../shared/ipc.ts';
 import { FakeBackend } from './fake-backend.ts';
+import { manyTabsTimeout } from './test-utils.tsx';
 
 const tree = () => screen.getByRole('navigation', { name: 'Session tree' });
 const row = (name: string) =>
@@ -94,6 +95,7 @@ describe('Session colours', () => {
         expect(contrast(text, shade)).toBeGreaterThan(contrast(other, shade));
       }
     },
+    manyTabsTimeout,
   );
 
   it('keeps the plain header for a Tab without a colour', async () => {

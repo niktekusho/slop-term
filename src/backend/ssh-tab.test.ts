@@ -1,7 +1,6 @@
 import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { utils } from 'ssh2';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { CredentialReference, SessionForm, TabId } from '../shared/ipc.ts';
 import {
@@ -17,6 +16,7 @@ import {
   startAgent,
   startFakeSshServer,
   startSshServer,
+  testKeyPair,
 } from './ssh-server.ts';
 
 let harness: Awaited<ReturnType<typeof startBackend>>;
@@ -100,8 +100,8 @@ async function loggedIn(tab: TabId) {
   await eventually(() => expect(harness.output(tab)).toContain('slop-42'));
 }
 
-const testKey = utils.generateKeyPairSync('ed25519');
-const lockedKey = utils.generateKeyPairSync('ed25519', {
+const testKey = testKeyPair();
+const lockedKey = testKeyPair('ed25519', {
   passphrase: 'open sesame',
   cipher: 'aes256-ctr',
   rounds: 16,
@@ -468,7 +468,7 @@ describe.skipIf(!docker)('SSH Tab against OpenSSH in Docker', () => {
   });
 
   it('blocks a changed key even with StrictHostKeyChecking no, and replaces it', async () => {
-    const stale = utils.generateKeyPairSync('ed25519').public.split(' ')[1];
+    const stale = testKeyPair().public.split(' ')[1];
     await start(host('  StrictHostKeyChecking no'), {
       known: `@revoked * ssh-rsa AAAA\n${name()} ssh-ed25519 ${stale}\nother ssh-ed25519 ${stale}\n`,
     });

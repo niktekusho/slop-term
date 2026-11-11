@@ -19,7 +19,8 @@
     "lint": "oxlint && oxfmt --check",
     "lint:fix": "oxlint --fix && oxfmt --write",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:local": "vitest run --maxWorkers=2"
   },
   "packageManager": "pnpm@10.28.1",
   "pnpm": {

@@ -1,6 +1,5 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { utils } from 'ssh2';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { TabId, Transfer } from '../shared/ipc.ts';
 import { eventually, includeManaged, startBackend } from './harness.ts';
@@ -8,10 +7,11 @@ import {
   dockerRunning,
   startFakeSshServer,
   startSshServer,
+  testKeyPair,
 } from './ssh-server.ts';
 
 const docker = await dockerRunning();
-const testKey = utils.generateKeyPairSync('ed25519');
+const testKey = testKeyPair();
 
 describe('SFTP transfers against an in-process server', () => {
   let harness: Awaited<ReturnType<typeof startBackend>>;

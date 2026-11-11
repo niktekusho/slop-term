@@ -88,10 +88,19 @@ export async function startSshServer(publicKeys: string[], password?: string) {
   };
 }
 
-// About 1 in 150 ed25519 keys ssh2 generates fail its own parser.
-function newHostKey(type: 'ed25519' | 'rsa' = 'ed25519'): string {
-  const key = utils.generateKeyPairSync(type, { bits: 2048 }).private;
-  return utils.parseKey(key) instanceof Error ? newHostKey(type) : key;
+/** A key pair for tests. About 1 in 150 ed25519 keys ssh2 generates fail its own parser, so this generates until one parses. */
+export function testKeyPair(
+  type: 'ed25519' | 'rsa' = 'ed25519',
+  locked?: { passphrase: string; cipher: string; rounds: number },
+) {
+  // `bits` sizes an RSA key; ed25519 ignores it.
+  const opts = { bits: 2048, ...locked } as never;
+  for (;;) {
+    // oxlint-disable-next-line no-restricted-properties -- the one place that calls it.
+    const pair = utils.generateKeyPairSync(type as 'ed25519', opts);
+    if (!(utils.parseKey(pair.private, locked?.passphrase) instanceof Error))
+      return pair;
+  }
 }
 
 /**
@@ -201,7 +210,7 @@ export async function startFakeSshServer({
       .on('error', () => {})
       .on('close', () => connections.delete(conn));
   }
-  let current = listening(newHostKey());
+  let current = listening(testKeyPair().private);
   const server = createServer((socket) => current.injectSocket(socket));
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   return {
@@ -219,7 +228,7 @@ export async function startFakeSshServer({
     closeShells: () => shells.forEach((s) => s.close()),
     /** New connections get a new host key; open ones keep theirs. */
     changeHostKey: (type: 'ed25519' | 'rsa' = 'ed25519') => {
-      current = listening(newHostKey(type));
+      current = listening(testKeyPair(type).private);
     },
     /** Holds every SFTP write until `release`. */
     hold: () => {

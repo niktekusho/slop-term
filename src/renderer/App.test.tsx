@@ -18,6 +18,7 @@ import {
   type Shell,
 } from '../shared/ipc.ts';
 import { FakeBackend } from './fake-backend.ts';
+import { manyTabsTimeout } from './test-utils.tsx';
 
 function setup({
   mac = false,
@@ -700,41 +701,45 @@ describe('Tabs in the tree', () => {
     ).toBeInTheDocument();
   });
 
-  it('numbers Tabs 1 to 9 in tree order with a keycap naming the shortcut', async () => {
-    const { backend, user, newLocalShell } = await openHosts([
-      'b-host',
-      'a-host',
-    ]);
-    await user.dblClick(row('b-host'));
-    await user.dblClick(row('a-host'));
-    await vi.waitFor(() => expect(backend.sent('openSsh')).toHaveLength(2));
-    for (let i = 0; i < 8; i++) await newLocalShell('zsh');
-    update(backend, 'tab-1', { folder: '/b-dir' });
-    update(backend, 'tab-2', { folder: '/a-dir' });
+  it(
+    'numbers Tabs 1 to 9 in tree order with a keycap naming the shortcut',
+    async () => {
+      const { backend, user, newLocalShell } = await openHosts([
+        'b-host',
+        'a-host',
+      ]);
+      await user.dblClick(row('b-host'));
+      await user.dblClick(row('a-host'));
+      await vi.waitFor(() => expect(backend.sent('openSsh')).toHaveLength(2));
+      for (let i = 0; i < 8; i++) await newLocalShell('zsh');
+      update(backend, 'tab-1', { folder: '/b-dir' });
+      update(backend, 'tab-2', { folder: '/a-dir' });
 
-    const keycaps = [...tree().querySelectorAll('.keycap')];
-    expect(keycaps.map((k) => k.textContent)).toEqual([
-      '1',
-      '2',
-      '3',
-      '4',
-      '5',
-      '6',
-      '7',
-      '8',
-      '9',
-    ]);
-    expect(keycaps[0]).toHaveAttribute('title', 'Ctrl+Shift+1');
-    // The 8 unsaved Tabs come first, then a-host's Tab, then b-host's.
-    expect(
-      row('a-dir').parentElement!.querySelector('.keycap'),
-    ).toHaveTextContent('9');
-    expect(row('a-dir')).toHaveAttribute(
-      'aria-keyshortcuts',
-      'Control+Shift+9',
-    );
-    expect(row('b-dir').parentElement!.querySelector('.keycap')).toBeNull();
-  });
+      const keycaps = [...tree().querySelectorAll('.keycap')];
+      expect(keycaps.map((k) => k.textContent)).toEqual([
+        '1',
+        '2',
+        '3',
+        '4',
+        '5',
+        '6',
+        '7',
+        '8',
+        '9',
+      ]);
+      expect(keycaps[0]).toHaveAttribute('title', 'Ctrl+Shift+1');
+      // The 8 unsaved Tabs come first, then a-host's Tab, then b-host's.
+      expect(
+        row('a-dir').parentElement!.querySelector('.keycap'),
+      ).toHaveTextContent('9');
+      expect(row('a-dir')).toHaveAttribute(
+        'aria-keyshortcuts',
+        'Control+Shift+9',
+      );
+      expect(row('b-dir').parentElement!.querySelector('.keycap')).toBeNull();
+    },
+    manyTabsTimeout,
+  );
 
   it('names Cmd+N in the keycap tooltip on macOS', async () => {
     const { newLocalShell } = setup({ mac: true });

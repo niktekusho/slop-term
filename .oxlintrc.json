@@ -2,5 +2,15 @@
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "categories": {
     "correctness": "warn"
+  },
+  "rules": {
+    "no-restricted-properties": [
+      "error",
+      {
+        "object": "utils",
+        "property": "generateKeyPairSync",
+        "message": "Use testKeyPair from ssh-server.ts: about 1 in 150 keys ssh2 generates fail its own parser."
+      }
+    ]
   }
 }

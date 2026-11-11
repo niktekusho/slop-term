@@ -7,6 +7,9 @@ import { FakeBackend } from './fake-backend.ts';
 
 export type User = ReturnType<typeof userEvent.setup>;
 
+/** For a test that opens 8 or more Tabs: each new Tab re-renders every Tab's terminal and pane, so it takes 3 to 4 s alone and more under load. */
+export const manyTabsTimeout = 15_000;
+
 export const tree = () =>
   screen.getByRole('navigation', { name: 'Session tree' });
 export const row = (name: string) =>
