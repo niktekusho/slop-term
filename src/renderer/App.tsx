@@ -11,6 +11,7 @@ import {
   defaultSettings,
   emptyTree,
   sessionColours,
+  unfinished,
   type BackendClient,
   type CredentialReference,
   type HostKeyQuestion,
@@ -21,11 +22,13 @@ import {
   type Settings,
   type Shell,
   type TabId,
+  type Transfer,
 } from '../shared/ipc.ts';
 import { TerminalView } from './TerminalView.tsx';
 import { ProfilingPanel } from './ProfilingPanel.tsx';
 import {
   folderPaths,
+  hostOf,
   SessionTree,
   shellLabel,
   tabLabel,
@@ -57,7 +60,7 @@ import {
 import { headerColours, terminalOptions } from './look.ts';
 import { HostKeyPrompt } from './HostKeyPrompt.tsx';
 import { SecretPrompt } from './SecretPrompt.tsx';
-import { expandIcon, SftpPane } from './SftpPane.tsx';
+import { CloseTabConfirm, expandIcon, percent, SftpPane } from './SftpPane.tsx';
 import {
   DeleteSession,
   freeAlias,
@@ -78,6 +81,8 @@ function withQuestion<Q>(questions: Map<TabId, Q>, tab: TabId, question?: Q) {
 // Dim, so the app's own lines stand apart from the shell's output.
 const note = (text: string) => `\r\n\x1b[2m${text}\x1b[22m\r\n`;
 const clock = () => new Date().toTimeString().slice(0, 5);
+const clearDoneMs = 3000;
+const pending = (tab?: Tab) => tab?.transfers?.filter(unfinished) ?? [];
 
 const darkQuery = () => window.matchMedia('(prefers-color-scheme: dark)');
 const subscribeToOsMode = (onChange: () => void) => {
@@ -119,13 +124,16 @@ export function App({
   const [deletingFolder, setDeletingFolder] = useState<FolderContents>();
   const [movedIn, setMovedIn] = useState<string>();
   const [notice, setNotice] = useState<string>();
+  // A Tab whose close waits for the user to confirm its unfinished transfers.
+  const [closing, setClosing] = useState<TabId>();
   const modal =
     !!dialog ||
     !!localDialog ||
     !!deleting ||
     !!moving ||
     !!deletingFolder ||
-    !!movedIn;
+    !!movedIn ||
+    !!closing;
   const [reconnectingAll, setReconnectingAll] = useState(false);
   const treeMenuRef = useRef<HTMLUListElement>(null);
   const [profiling, setProfiling] = useState(false);
@@ -220,15 +228,23 @@ export function App({
     setReconnectingAll(false);
   };
 
-  // The back-end event listener subscribes once, so it reads the latest tree order from a ref.
+  // The back-end event listener subscribes once, so it reads the latest tree order and active Tab from refs.
   const order = useRef<TabId[]>([]);
   order.current = tabOrder(tree, tabs).map((t) => t.id);
+  const activeRef = useRef<TabId>(undefined);
+  activeRef.current = active;
+  // Tabs whose queue waits on a conflict question: switching to one opens the pane to show it.
+  const asking = useRef(new Set<TabId>());
+  useEffect(() => {
+    if (active && asking.current.has(active)) setPaneOpen(true);
+  }, [active]);
 
   // The next Tab in tree order takes over, or the previous one for the last.
   const removeTab = useCallback(
     (id: TabId) => {
       backend.close(id);
       halted.current.delete(id);
+      asking.current.delete(id);
       loggedIn.current.delete(id);
       keepAfterExit.current.delete(id);
       reconnecting.current.delete(id);
@@ -254,6 +270,44 @@ export function App({
           const { type: _, tab, ...update } = event;
           return updateTab(tab, update);
         }
+        if (event.type === 'transfer') {
+          const { tab, transfer } = event;
+          const without = (list: Transfer[] = []) =>
+            list.filter((t) => t.id !== transfer.id);
+          const change = (edit: (list?: Transfer[]) => Transfer[]) =>
+            setTabs((tabs) =>
+              tabs.map((t) =>
+                t.id === tab ? { ...t, transfers: edit(t.transfers) } : t,
+              ),
+            );
+          change((list = []) =>
+            transfer.state === 'cancelled'
+              ? without(list)
+              : list.some((t) => t.id === transfer.id)
+                ? list.map((t) => (t.id === transfer.id ? transfer : t))
+                : [...list, transfer],
+          );
+          // A retry can bring a finished id back: only a still finished one clears.
+          if (transfer.state === 'done')
+            setTimeout(
+              () =>
+                change((list = []) =>
+                  list.some((t) => t.id === transfer.id && t.state === 'done')
+                    ? without(list)
+                    : list,
+                ),
+              clearDoneMs,
+            );
+          return;
+        }
+        // The SFTP pane shows these. The queue waits on a conflict, so a collapsed pane opens to ask it.
+        if (event.type === 'conflict') {
+          if (!event.conflict) return asking.current.delete(event.tab);
+          asking.current.add(event.tab);
+          if (event.tab === activeRef.current) setPaneOpen(true);
+          return;
+        }
+        if (event.type === 'transferKey') return;
         if (event.type === 'hostKey' || event.type === 'secret') {
           // A Tab that "Reconnect all" started in the background comes forward to ask.
           if (event.question && settled.current.has(event.tab))
@@ -607,7 +661,10 @@ export function App({
         if (typeof tab?.source === 'string') openSession(tab.source);
         else if (tab) open(tab.source);
       } else if (shortcut === 'close') {
-        if (active) removeTab(active);
+        if (!active) return;
+        if (pending(tabs.find((t) => t.id === active)).length)
+          setClosing(active);
+        else removeTab(active);
       } else if (typeof shortcut === 'number') {
         const id = order.current[shortcut - 1];
         if (id) setActive(id);
@@ -676,6 +733,10 @@ export function App({
         localOf(tab.source)?.colour)
       : undefined;
   const activeColour = colourOf(activeTab);
+  const uploading = activeTab?.transfers?.find(
+    (t) => t.direction === 'upload' && t.state === 'running',
+  );
+  const closingTab = tabs.find((t) => t.id === closing);
 
   return (
     <div className="window">
@@ -934,10 +995,15 @@ export function App({
             onClick={() => setPaneOpen(true)}
           >
             {expandIcon}
+            {uploading && (
+              <>
+                <span className="strip-progress">
+                  {percent(uploading)}%
+                </span>{' '}
+              </>
+            )}
             <span>
-              {['SFTP', activeTab.address?.split('@').at(-1)]
-                .filter(Boolean)
-                .join(' · ')}
+              {['SFTP', hostOf(activeTab)].filter(Boolean).join(' · ')}
             </span>
           </button>
         )}
@@ -1043,6 +1109,18 @@ export function App({
             const { folder, aliases } = deletingFolder;
             setTree(await backend.deleteFolder(folder, aliases, deleteSecrets));
             setDeletingFolder(undefined);
+          }}
+        />
+      )}
+      {closingTab && (
+        <CloseTabConfirm
+          name={tabLabel(closingTab)}
+          pending={pending(closingTab)}
+          onShow={(file) => backend.showItem(file)}
+          onCancel={() => setClosing(undefined)}
+          onClose={() => {
+            setClosing(undefined);
+            removeTab(closingTab.id);
           }}
         />
       )}

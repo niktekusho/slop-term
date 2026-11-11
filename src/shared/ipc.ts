@@ -43,6 +43,8 @@ export type Settings = {
   keepassDatabases: KeepassDatabaseSetting[];
   /** The group the last new KeePass entry went to, which the next "Save to" preselects. */
   keepassLastGroup?: KeepassTarget;
+  /** Where Download saves; unset means the Downloads folder. */
+  downloadFolder?: string;
 };
 
 /** `name` defaults to the file name without its extension. */
@@ -188,6 +190,50 @@ export type FileCounts = { files: number; bytes: number };
 /** `path` is absolute and resolved. */
 export type Listing = { path: string; files: RemoteFile[] };
 
+/**
+ * One item of a Tab's transfer queue: a file, or a folder with everything inside. `folder` is where it goes, remote for an upload and local for a download.
+ * `local` is the file or folder on this computer: an upload's source, a download's saved copy. `speed` is in bytes per second.
+ * A `cancelled` item was cancelled or skipped and leaves the list.
+ */
+export type Transfer = {
+  id: string;
+  direction: 'upload' | 'download';
+  name: string;
+  folder: string;
+  local: string;
+  bytes: number;
+  total: number;
+  speed: number;
+  state: 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
+  reason?: string;
+};
+
+/** Queued or running: a cancel can still stop it, and closing its Tab asks first. */
+export const unfinished = (t: Transfer) =>
+  t.state === 'queued' || t.state === 'running';
+
+/** Size and modified time (ms since 1970) of one side of a conflict. */
+export type FileSide = { size: number; modified: number };
+
+/** A transfer whose target exists. `others` counts the conflicts of the same batch still to answer after this one. */
+export type Conflict = {
+  name: string;
+  local: FileSide;
+  remote: FileSide;
+  others: number;
+};
+
+/** `keep` transfers under a free name with a ` (1)` suffix. */
+export type ConflictChoice = 'overwrite' | 'skip' | 'keep';
+
+/** The transfer connection met a host key other than the one the Tab accepted. Fingerprints are SHA256. */
+export type TransferKeyChange = {
+  host: string;
+  keyType: string;
+  accepted: string;
+  fingerprint: string;
+};
+
 /** One line of a Test's checklist. */
 export type TestStep = {
   label: string;
@@ -309,12 +355,35 @@ export interface Backend {
   measureFiles(tab: TabId, paths: string[]): Promise<FileCounts[]>;
   /** Deletes folders with everything inside. A link is deleted, never followed. */
   deleteFiles(tab: TabId, paths: string[]): Promise<void>;
+  /**
+   * Queues local files and folders for upload into a remote folder. Resolves once they are queued:
+   * their progress comes as `transfer` events and existing targets ask as `conflict` events.
+   */
+  upload(tab: TabId, paths: string[], folder: string): Promise<void>;
+  /** Queues remote files and folders for download, into `folder` or else the last download folder. A `folder` becomes the last download folder. */
+  download(tab: TabId, paths: string[], folder?: string): Promise<void>;
+  cancelTransfer(tab: TabId, id: string): Promise<void>;
+  /** Queues a failed transfer again, to the same target, without asking. */
+  retryTransfer(tab: TabId, id: string): Promise<void>;
+  /** `all` gives the same answer to the other conflicts of the batch. */
+  answerConflict(
+    tab: TabId,
+    choice: ConflictChoice,
+    all: boolean,
+  ): Promise<void>;
 }
 
-// Served by the main process: native dialogs exist only there.
+// Served by the main process, where native dialogs and the file manager live. Only `pathForFile` comes from the preload.
 export interface Dialogs {
   /** Resolves to the picked file, as `~/…` when it is in the home folder. */
   pickKeyFile(): Promise<string | undefined>;
+  pickFolder(): Promise<string | undefined>;
+  /** Files only: the native picker can't offer files and folders at once on Windows. */
+  pickFiles(): Promise<string[]>;
+  /** Opens Explorer or Finder with the file selected. */
+  showItem(path: string): Promise<void>;
+  /** The path of a file dropped from the OS. */
+  pathForFile(file: File): string;
 }
 
 // Served by the main process, not the back end: these Electron APIs exist only there.
@@ -357,6 +426,10 @@ export type BackendEvent =
   | { type: 'secret'; tab: TabId; question?: SecretQuestion }
   /** Steps pass in order. The first failure carries its reason and ends the Test. */
   | { type: 'test'; tab: TabId; steps: TestStep[] }
+  | { type: 'transfer'; tab: TabId; transfer: Transfer }
+  /** None means no question is open: it was answered, or the Tab dropped or closed. */
+  | { type: 'conflict'; tab: TabId; conflict?: Conflict }
+  | { type: 'transferKey'; tab: TabId; change: TransferKeyChange }
   | { type: 'settings'; settings: Settings }
   | { type: 'tree'; tree: SessionTree };
 
@@ -432,6 +505,11 @@ const methods: { [M in keyof Backend]: true } = {
   makeFolder: true,
   measureFiles: true,
   deleteFiles: true,
+  upload: true,
+  download: true,
+  cancelTransfer: true,
+  retryTransfer: true,
+  answerConflict: true,
 };
 
 export function serve(backend: Backend, send: (message: Message) => void) {

@@ -46,6 +46,11 @@ export class FakeBackend implements BackendClient {
     identityFile: '~/.ssh/id_ed25519',
   };
   keyFile: string | undefined = '~/.ssh/id_web';
+  /** What the folder and file pickers answer; none and [] are a cancel. */
+  folder: string | undefined = '/local/picked';
+  pickedFiles: string[] = ['/local/a.txt', '/local/b.txt'];
+  /** The paths `showItem` revealed in the file manager. */
+  shown: string[] = [];
   saveError: string | undefined;
   /** What every `findTpm` answers; an Error rejects with its message. */
   tpmFind: TpmFind | Error = { entries: [] };
@@ -394,8 +399,45 @@ export class FakeBackend implements BackendClient {
       );
   }
 
+  async upload(...args: Parameters<Backend['upload']>) {
+    this.requests.push({ method: 'upload', args });
+  }
+
+  async download(...args: Parameters<Backend['download']>) {
+    this.requests.push({ method: 'download', args });
+  }
+
+  async cancelTransfer(...args: Parameters<Backend['cancelTransfer']>) {
+    this.requests.push({ method: 'cancelTransfer', args });
+  }
+
+  async retryTransfer(...args: Parameters<Backend['retryTransfer']>) {
+    this.requests.push({ method: 'retryTransfer', args });
+  }
+
+  async answerConflict(...args: Parameters<Backend['answerConflict']>) {
+    this.requests.push({ method: 'answerConflict', args });
+  }
+
   async pickKeyFile() {
     return this.keyFile;
+  }
+
+  async pickFolder() {
+    return this.folder;
+  }
+
+  async pickFiles() {
+    return this.pickedFiles;
+  }
+
+  async showItem(path: string) {
+    this.shown.push(path);
+  }
+
+  /** A dropped file's path, as the preload would give it. */
+  pathForFile(file: File) {
+    return `/local/${file.name}`;
   }
 
   setZoom(factor: number) {

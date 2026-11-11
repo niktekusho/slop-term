@@ -99,6 +99,8 @@ function parse(raw: Record<string, unknown>): Settings {
   const last = raw.keepassLastGroup as Record<string, unknown> | undefined;
   if (typeof last?.database === 'string' && typeof last.group === 'string')
     settings.keepassLastGroup = { database: last.database, group: last.group };
+  if (typeof raw.downloadFolder === 'string' && raw.downloadFolder.trim())
+    settings.downloadFolder = raw.downloadFolder.trim();
   return settings;
 }
 

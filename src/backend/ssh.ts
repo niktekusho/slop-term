@@ -12,6 +12,7 @@ import ssh2, {
   type AnyAuthMethod,
   type ClientChannel,
   type Prompt,
+  type SFTPWrapper,
 } from 'ssh2';
 import type {
   BackendEvent,
@@ -45,7 +46,7 @@ import {
   savedKeys,
 } from './known-hosts.ts';
 import { resolve } from './resolver.ts';
-import { sftpFiles } from './sftp.ts';
+import { call, sftpFiles } from './sftp.ts';
 
 export type SshTab = {
   write(data: string): void;
@@ -56,7 +57,15 @@ export type SshTab = {
   keepalive(): void;
   /** The SFTP pane's files, over a channel on this connection that the first call opens. */
   files(): Promise<SftpFiles>;
+  /** A new SFTP channel for transfers, which the caller ends. It runs on the transfer connection, or on this one for hosts that asked keyboard-interactive questions. */
+  transferChannel(): Promise<SFTPWrapper>;
 };
+
+// Tests shorten the 5 minutes the transfer connection stays open with no channels.
+const transferIdleMs = Number(process.env.SLOP_TRANSFER_IDLE_MS) || 5 * 60_000;
+
+const openSftp = (client: Client) =>
+  call<SFTPWrapper>((done) => client.sftp(done));
 
 type SftpFiles = ReturnType<typeof sftpFiles>;
 export const notConnected = () => new Error('The Tab is not connected.');
@@ -72,6 +81,8 @@ export type TabMemory = {
   typed: Typed;
   /** The host key the Tab accepted, in base64. */
   hostKey?: string;
+  /** The host asked keyboard-interactive questions, which a transfer connection can't answer. */
+  interactive?: boolean;
 };
 
 // ssh2 has no public way to send one keepalive now. This is the request its own keepalive timer sends.
@@ -160,6 +171,23 @@ export function openSshTab(
   let files: Promise<SftpFiles> | undefined;
   // Set on login, before the shell opens: the pane may ask as soon as the `connected` event arrives.
   let ready = false;
+  // Set on login: opens the transfer connection with what this login knows, asking nothing.
+  let transferLogin: (() => Promise<Client>) | undefined;
+  let transferClient: Promise<Client> | undefined;
+  let channels = 0;
+  let idle: NodeJS.Timeout | undefined;
+  const endTransfers = () => {
+    clearTimeout(idle);
+    transferClient?.then(
+      (c) => c.end(),
+      () => {},
+    );
+    transferClient = undefined;
+  };
+  const release = () => {
+    if (--channels === 0 && !closed)
+      idle = setTimeout(endTransfers, transferIdleMs);
+  };
 
   const print = (text: string) =>
     emit({ type: 'output', tab, data: `\r\n${text}\r\n` });
@@ -181,6 +209,7 @@ export function openSshTab(
       emit({ type: 'secret', tab });
     }
     client.end();
+    endTransfers();
     onClose();
     if (reason && test) report(reason);
     else if (reason) emit({ type: 'dropped', tab, reason, ...extra });
@@ -221,15 +250,49 @@ export function openSshTab(
     files() {
       if (!ready || closed) return Promise.reject(notConnected());
       // A failed open isn't kept, so the next call tries again.
-      files ??= new Promise<SftpFiles>((resolve, reject) =>
-        client.sftp((err, sftp) =>
-          err ? reject(err) : resolve(sftpFiles(sftp)),
-        ),
-      ).catch((e) => {
-        files = undefined;
-        throw e;
-      });
+      files ??= openSftp(client)
+        .then(sftpFiles)
+        .catch((e) => {
+          files = undefined;
+          throw e;
+        });
       return files;
+    },
+    async transferChannel() {
+      if (!ready || closed) throw notConnected();
+      if (memory.interactive) return openSftp(client);
+      // Counted before the first await, so a channel closing meanwhile can't start the idle timer.
+      channels++;
+      clearTimeout(idle);
+      try {
+        if (!transferClient) {
+          const opening = transferLogin!();
+          transferClient = opening;
+          // A connection that ends or never opens isn't kept, so the next transfer opens a new one.
+          const forget = () => {
+            if (transferClient === opening) transferClient = undefined;
+          };
+          opening.then((c) => c.on('close', forget), forget);
+        }
+        const sftp = await openSftp(await transferClient);
+        // The server's close reply can lag or never come: ending the channel releases it too, once.
+        let released = false;
+        const done = () => {
+          if (released) return;
+          released = true;
+          release();
+        };
+        sftp.on('close', done);
+        const end = sftp.end.bind(sftp);
+        sftp.end = () => {
+          end();
+          done();
+        };
+        return sftp;
+      } catch (e) {
+        release();
+        throw e;
+      }
     },
   };
 
@@ -464,6 +527,93 @@ export function openSshTab(
     ];
     const lockedKeys = keyFiles.filter(locked);
 
+    // Copies: the Tab's own login takes methods off `plain` and `lockedKeys`.
+    const quietPlain = [...plain];
+    const quietLocked = [...lockedKeys];
+    /** Typed, else read from the reference. Never asks: a provider that needs its own login fails the read. */
+    const known = async (kind: Kind) =>
+      typed[kind] ??
+      (ref?.kind === kind ? (await provider(ref).read(ref)).secret : undefined);
+    transferLogin = () =>
+      new Promise<Client>((resolve, reject) => {
+        const steps: (() => Promise<AnyAuthMethod | undefined>)[] = [
+          ...quietPlain.map((method) => async () => method),
+          ...quietLocked.map(({ key }) => async () => {
+            const passphrase = await known('passphrase');
+            return passphrase === undefined
+              ? undefined
+              : { type: 'publickey' as const, username, key, passphrase };
+          }),
+          async () => {
+            const password = await known('password');
+            return password === undefined
+              ? undefined
+              : { type: 'password' as const, username, password };
+          },
+        ];
+        const accepted = Buffer.from(memory.hostKey!, 'base64');
+        let failure: Error | undefined;
+        const conn = new Client();
+        conn
+          .on('ready', () => resolve(conn))
+          .on('error', (e: Error & { level?: string }) => {
+            if (e.level === 'agent') return;
+            // The host key list holds only the accepted key's type, so a host without that type fails the handshake.
+            if (/no matching host key/.test(e.message))
+              failure ??= new Error(
+                `The host no longer offers the ${keyType(accepted)} key the Tab accepted.`,
+              );
+            reject(failure ?? e);
+          })
+          .on('close', () => reject(failure ?? new Error('Connection closed.')))
+          .connect({
+            host: r.hostname,
+            port: r.port,
+            username,
+            keepaliveInterval: r.keepaliveSeconds * 1000,
+            keepaliveCountMax: r.keepaliveCount,
+            algorithms: {
+              serverHostKey: algorithms[keyType(accepted)] as never,
+            },
+            // Only the key the Tab accepted: the Tab answered the question once, and a transfer never asks.
+            hostVerifier: (blob: Buffer) => {
+              if (blob.equals(accepted)) return true;
+              failure = new Error(
+                'The host sent a different key than the Tab accepted.',
+              );
+              emit({
+                type: 'transferKey',
+                tab,
+                change: {
+                  host: `${r.hostname}:${r.port}`,
+                  keyType: keyType(blob),
+                  accepted: fingerprint(memory.hostKey!),
+                  fingerprint: fingerprint(blob.toString('base64')),
+                },
+              });
+              return false;
+            },
+            authHandler: (left, _partial, next) => {
+              const allowed = (m: AnyAuthMethod) =>
+                !left ||
+                left.includes(m.type === 'agent' ? 'publickey' : m.type);
+              (async () => {
+                for (let step; (step = steps.shift()); ) {
+                  const method = await step();
+                  if (method && allowed(method)) return method;
+                }
+                return false as const;
+              })().then(
+                (method) => next(method as AnyAuthMethod),
+                (e: Error) => {
+                  failure = e;
+                  next(false as never);
+                },
+              );
+            },
+          });
+      });
+
     // A wrong passphrase fails here, before the server sees the key.
     async function unlock({ file, key }: { file: string; key: string }) {
       for (let retry = false; ; retry = true) {
@@ -488,6 +638,7 @@ export function openSshTab(
       username,
       prompt(name, instructions, _lang, prompts: Prompt[], finish) {
         rounds++;
+        if (prompts.length) memory.interactive = true;
         const answered = (answers: string[] | undefined) =>
           answers ? finish(answers) : cancelled();
         const failed = (e: Error) => close(e.message);

@@ -7,7 +7,12 @@ import {
   type DragEvent,
   type ReactNode,
 } from 'react';
-import type { SessionTree as Model, Shell, TabId } from '../shared/ipc.ts';
+import type {
+  SessionTree as Model,
+  Shell,
+  TabId,
+  Transfer,
+} from '../shared/ipc.ts';
 import {
   folderProblem,
   inFolder,
@@ -32,6 +37,8 @@ export type Tab = {
   disconnected?: 'retry' | 'final';
   /** The username a TPM entry names, when it blocked the connect for differing from `User`. */
   useUser?: string;
+  /** The transfer queue in order, without cancelled and cleared items. */
+  transfers?: Transfer[];
 };
 
 type Folder = {
@@ -40,6 +47,9 @@ type Folder = {
   folders: Folder[];
   sessions: string[];
 };
+
+/** The host part of an SSH Tab's `user@host`. */
+export const hostOf = (tab?: Tab) => tab?.address?.split('@').at(-1);
 
 export const shellLabel = (shell: Shell) =>
   shell.kind === 'wsl' ? `wsl: ${shell.distro}` : shell.kind;

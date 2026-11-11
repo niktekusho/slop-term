@@ -22,8 +22,8 @@ const emit = (event: BackendEvent) => send({ event });
 // Both hosts pass the app data folder as the last argument; they put different things before it.
 const dataDir = process.argv.at(-1)!;
 
-const { renamed, ...sessions } = createSessions(emit);
 const settings = createSettings(dataDir, emit);
+const { renamed, ...sessions } = createSessions(emit, settings);
 const { provider: tpm, ...tpmMethods } = createTpm(settings.settings);
 providers.tpm = tpm;
 const { provider: keepass, ...keepassMethods } = createKeepass(

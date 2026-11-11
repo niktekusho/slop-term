@@ -10,6 +10,7 @@ import {
   type Connection,
   type ParsedKey,
   type ServerChannel,
+  type Session,
 } from 'ssh2';
 
 const run = async (...args: string[]) =>
@@ -87,69 +88,144 @@ export async function startSshServer(publicKeys: string[], password?: string) {
   };
 }
 
+// About 1 in 150 ed25519 keys ssh2 generates fail its own parser.
+function newHostKey(type: 'ed25519' | 'rsa' = 'ed25519'): string {
+  const key = utils.generateKeyPairSync(type, { bits: 2048 }).private;
+  return utils.parseKey(key) instanceof Error ? newHostKey(type) : key;
+}
+
 /**
- * An in-process SSH server for what OpenSSH in Docker can't show: it counts keepalives and ends connections on demand.
- * Any login works, or with `code` only a keyboard-interactive login that answers it, or with `password` only that password.
- * `users` lists the user name of each login attempt.
+ * An in-process SSH server for what OpenSSH in Docker can't show: keepalive and connection counts, drops on demand, a host key change, held SFTP writes.
+ * Any login works, or with `code` only a keyboard-interactive login that answers it, or with `password` only that password. `users` lists each login's user name.
+ * With `sftp`, it answers what an upload needs and keeps the uploaded files in `files`, by path; without, it has no SFTP subsystem.
  */
 export async function startFakeSshServer({
   code,
   password,
-}: { code?: string; password?: string } = {}) {
+  sftp: withSftp = false,
+}: { code?: string; password?: string; sftp?: boolean } = {}) {
   const users: string[] = [];
   const connections = new Set<Connection>();
   const shells = new Set<ServerChannel>();
+  const files = new Map<string, Buffer>();
   let keepalives = 0;
-  const server = new Server(
-    {
-      hostKeys: [utils.generateKeyPairSync('ed25519').private],
-      // ssh2 answers keepalives itself: only its debug log sees them.
-      debug: (line) => {
-        if (line.includes('GLOBAL_REQUEST (keepalive@openssh.com)'))
-          keepalives++;
-      },
-    },
-    (conn) => {
-      connections.add(conn);
-      conn
-        .on('authentication', (ctx) => {
-          users.push(ctx.username);
-          if (password !== undefined)
-            return ctx.method === 'password' && ctx.password === password
-              ? ctx.accept()
-              : ctx.reject(['password']);
-          if (!code) return ctx.accept();
-          if (ctx.method !== 'keyboard-interactive')
-            return ctx.reject(['keyboard-interactive']);
-          ctx.prompt(
-            [{ prompt: 'Verification code: ', echo: true }],
-            (answers) => (answers[0] === code ? ctx.accept() : ctx.reject()),
-          );
-        })
-        .on('ready', () => {
-          conn.on('session', (accept) => {
-            const session = accept();
-            session.on('pty', (ok) => ok?.());
-            session.on('window-change', (ok) => ok?.());
-            session.on('shell', (ok) => {
-              const shell = ok();
-              shells.add(shell);
-              shell.write('$ ');
-            });
+  const perConnection = new Map<string, number>();
+  let opened = 0;
+  // Writes wait while held, so a transfer stays running.
+  let held: Promise<void> = Promise.resolve();
+  let release = () => {};
+  const sftp = (session: Session) =>
+    session.on('sftp', (accept) => {
+      const s = accept();
+      const handles = new Map<number, string>();
+      let next = 0;
+      const { OK, NO_SUCH_FILE } = utils.sftp.STATUS_CODE;
+      s.on('OPEN', (id, path) => {
+        files.set(path, Buffer.alloc(0));
+        handles.set(next, path);
+        s.handle(id, Buffer.from([next++]));
+      })
+        .on('WRITE', (id, handle, offset, data) => {
+          const path = handles.get(handle[0])!;
+          held.then(() => {
+            const old = files.get(path)!;
+            const grown = Buffer.alloc(
+              Math.max(old.length, offset + data.length),
+            );
+            old.copy(grown);
+            data.copy(grown, offset);
+            files.set(path, grown);
+            s.status(id, OK);
           });
         })
-        .on('error', () => {})
-        .on('close', () => connections.delete(conn));
-    },
-  );
+        .on('CLOSE', (id) => s.status(id, OK));
+      for (const op of ['STAT', 'LSTAT'] as const)
+        s.on(op, (id: number, path: string) => {
+          const file = files.get(path);
+          if (!file) return s.status(id, NO_SUCH_FILE);
+          s.attrs(id, {
+            mode: 0o100644,
+            size: file.length,
+            uid: 0,
+            gid: 0,
+            atime: 0,
+            mtime: 0,
+          });
+        });
+    });
+  // A host key change swaps the server the next connection reaches.
+  const listening = (hostKey: string) =>
+    new Server(
+      {
+        hostKeys: [hostKey],
+        // ssh2 answers keepalives itself: only its debug log sees them, each line prefixed by its connection's id.
+        debug: (line) => {
+          if (!line.includes('GLOBAL_REQUEST (keepalive@openssh.com)')) return;
+          keepalives++;
+          const id = line.slice(0, line.indexOf(']'));
+          perConnection.set(id, (perConnection.get(id) ?? 0) + 1);
+        },
+      },
+      onConnection,
+    );
+  function onConnection(conn: Connection) {
+    opened++;
+    connections.add(conn);
+    conn
+      .on('authentication', (ctx) => {
+        users.push(ctx.username);
+        if (password !== undefined)
+          return ctx.method === 'password' && ctx.password === password
+            ? ctx.accept()
+            : ctx.reject(['password']);
+        if (!code) return ctx.accept();
+        if (ctx.method !== 'keyboard-interactive')
+          return ctx.reject(['keyboard-interactive']);
+        ctx.prompt([{ prompt: 'Verification code: ', echo: true }], (answers) =>
+          answers[0] === code ? ctx.accept() : ctx.reject(),
+        );
+      })
+      .on('ready', () => {
+        conn.on('session', (accept) => {
+          const session = accept();
+          session.on('pty', (ok) => ok?.());
+          session.on('window-change', (ok) => ok?.());
+          session.on('shell', (ok) => {
+            const shell = ok();
+            shells.add(shell);
+            shell.write('$ ');
+          });
+          if (withSftp) sftp(session);
+        });
+      })
+      .on('error', () => {})
+      .on('close', () => connections.delete(conn));
+  }
+  let current = listening(newHostKey());
+  const server = createServer((socket) => current.injectSocket(socket));
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   return {
     port: (server.address() as { port: number }).port,
     users,
+    files,
     keepalives: () => keepalives,
+    /** The keepalive count of each connection that sent one. */
+    keepalivesPerConnection: () => [...perConnection.values()],
+    /** Connections opened so far, and still open. */
+    opened: () => opened,
+    open: () => connections.size,
     dropAll: () => connections.forEach((c) => c.end()),
     /** Closes each shell channel with no exit status and keeps the connection. */
     closeShells: () => shells.forEach((s) => s.close()),
+    /** New connections get a new host key; open ones keep theirs. */
+    changeHostKey: (type: 'ed25519' | 'rsa' = 'ed25519') => {
+      current = listening(newHostKey(type));
+    },
+    /** Holds every SFTP write until `release`. */
+    hold: () => {
+      held = new Promise((resolve) => (release = resolve));
+    },
+    release: () => release(),
     // close() waits for open connections, so it ends them first.
     stop: () =>
       new Promise((resolve) => {

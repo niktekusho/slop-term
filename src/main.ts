@@ -6,6 +6,7 @@ import {
   ipcMain,
   nativeTheme,
   powerMonitor,
+  shell,
   utilityProcess,
 } from 'electron';
 import { rm } from 'node:fs/promises';
@@ -78,7 +79,7 @@ app.whenReady().then(() => {
     profiler[method](),
   );
 
-  const dialogs: Dialogs = {
+  const dialogs: Omit<Dialogs, 'pathForFile'> = {
     async pickKeyFile() {
       const home = app.getPath('home');
       const { canceled, filePaths } = await dialog.showOpenDialog(window, {
@@ -92,9 +93,26 @@ app.whenReady().then(() => {
         ? filePaths[0]
         : `~/${inHome.replaceAll(path.sep, '/')}`;
     },
+    async pickFolder() {
+      const { canceled, filePaths } = await dialog.showOpenDialog(window, {
+        properties: ['openDirectory', 'createDirectory'],
+      });
+      return canceled ? undefined : filePaths[0];
+    },
+    async pickFiles() {
+      const { canceled, filePaths } = await dialog.showOpenDialog(window, {
+        properties: ['openFile', 'multiSelections'],
+      });
+      return canceled ? [] : filePaths;
+    },
+    async showItem(file) {
+      shell.showItemInFolder(file);
+    },
   };
-  ipcMain.handle('dialogs', (_event, method: keyof Dialogs) =>
-    dialogs[method](),
+  ipcMain.handle(
+    'dialogs',
+    (_event, method: keyof typeof dialogs, ...args: [string]) =>
+      dialogs[method](...args),
   );
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {

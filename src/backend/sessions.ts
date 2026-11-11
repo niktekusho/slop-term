@@ -1,3 +1,6 @@
+import { mkdir } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import path from 'node:path';
 import { spawn } from 'node-pty';
 import type {
   Backend,
@@ -10,6 +13,7 @@ import { shellMissing } from '../shared/session-rules.ts';
 import { blockLines, localShell } from './config-store.ts';
 import { detectShells, spawnLine } from './shells.ts';
 import { oscScanner } from './osc.ts';
+import { createTransfers } from './transfers.ts';
 import {
   notConnected,
   openSshTab,
@@ -19,6 +23,7 @@ import {
 
 type Tab = {
   files?: SshTab['files'];
+  transferChannel?: SshTab['transferChannel'];
   write(data: string): void;
   resize(size: TerminalSize): void;
   close(): void;
@@ -54,7 +59,10 @@ const ptyTab =
     };
   };
 
-export function createSessions(emit: (event: BackendEvent) => void): Pick<
+export function createSessions(
+  emit: (event: BackendEvent) => void,
+  settings: Pick<Backend, 'settings' | 'updateSettings'>,
+): Pick<
   Backend,
   | 'listShells'
   | 'openLocalShell'
@@ -73,6 +81,11 @@ export function createSessions(emit: (event: BackendEvent) => void): Pick<
   | 'makeFolder'
   | 'measureFiles'
   | 'deleteFiles'
+  | 'upload'
+  | 'download'
+  | 'cancelTransfer'
+  | 'retryTransfer'
+  | 'answerConflict'
 > & {
   /** Points the SSH Tabs of a renamed Saved session at its new alias, so a reconnect finds it. */
   renamed(from: string, to: string): void;
@@ -88,6 +101,22 @@ export function createSessions(emit: (event: BackendEvent) => void): Pick<
   const files = (tab: TabId) =>
     tabs.get(tab)?.files?.() ?? Promise.reject(notConnected());
 
+  // Kept across reconnects, so a transfer that failed on a drop can retry on the new connection.
+  const queues = new Map<TabId, ReturnType<typeof createTransfers>>();
+  const queue = (tab: TabId) => {
+    let q = queues.get(tab);
+    if (!q) {
+      q = createTransfers(
+        tab,
+        emit,
+        () =>
+          tabs.get(tab)?.transferChannel?.() ?? Promise.reject(notConnected()),
+      );
+      queues.set(tab, q);
+    }
+    return q;
+  };
+
   const start = (tab: TabId, open: Open) => {
     const scan = oscScanner((update) => {
       if (!('host' in update)) return emit({ type: 'tab', tab, ...update });
@@ -97,6 +126,8 @@ export function createSessions(emit: (event: BackendEvent) => void): Pick<
     const send = (event: BackendEvent) => {
       emit(event);
       if (event.type === 'output') scan(event.data);
+      if (event.type === 'dropped' || event.type === 'exit')
+        queues.get(tab)?.fail('The Tab disconnected.');
     };
     const live = open(tab, send, () => {
       if (tabs.get(tab) === live) tabs.delete(tab);
@@ -168,6 +199,8 @@ export function createSessions(emit: (event: BackendEvent) => void): Pick<
       openers.delete(tab);
       targets.delete(tab);
       firstHosts.delete(tab);
+      queues.get(tab)?.fail('The Tab closed.');
+      queues.delete(tab);
       tabs.get(tab)?.close();
     },
 
@@ -193,5 +226,24 @@ export function createSessions(emit: (event: BackendEvent) => void): Pick<
     makeFolder: async (tab, path) => (await files(tab)).makeFolder(path),
     measureFiles: async (tab, paths) => (await files(tab)).measure(paths),
     deleteFiles: async (tab, paths) => (await files(tab)).remove(paths),
+
+    async upload(tab, paths, folder) {
+      queue(tab).enqueue('upload', paths, folder);
+    },
+
+    async download(tab, paths, folder) {
+      if (folder) await settings.updateSettings({ downloadFolder: folder });
+      const into =
+        folder ??
+        (await settings.settings()).downloadFolder ??
+        path.join(homedir(), 'Downloads');
+      await mkdir(into, { recursive: true });
+      queue(tab).enqueue('download', paths, into);
+    },
+
+    cancelTransfer: async (tab, id) => queues.get(tab)?.cancel(id),
+    retryTransfer: async (tab, id) => queues.get(tab)?.retry(id),
+    answerConflict: async (tab, choice, all) =>
+      queues.get(tab)?.answer(choice, all),
   };
 }

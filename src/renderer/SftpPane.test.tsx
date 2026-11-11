@@ -1,7 +1,7 @@
-import { act, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import type { RemoteFile, SessionTree } from '../shared/ipc.ts';
+import type { RemoteFile, SessionTree, Transfer } from '../shared/ipc.ts';
 import { App } from './App.tsx';
 import { FakeBackend } from './fake-backend.ts';
 
@@ -254,8 +254,8 @@ describe('SFTP pane', () => {
         target: fileRow('notes.txt'),
       });
       expect(menuItem('Open in editor')).toBeDisabled();
-      expect(menuItem('Download')).toBeDisabled();
-      expect(menuItem('Download to…')).toBeDisabled();
+      expect(menuItem('Download')).toBeEnabled();
+      expect(menuItem('Download to…')).toBeEnabled();
       await user.keyboard('{Escape}');
 
       await user.click(fileRow('notes.txt'));
@@ -264,7 +264,7 @@ describe('SFTP pane', () => {
       await user.keyboard('{/Control}');
       await user.pointer({ keys: '[MouseRight]', target: fileRow('run.sh') });
       expect(menuItem('Rename')).toBeDisabled();
-      expect(menuItem('Download 2 items')).toBeDisabled();
+      expect(menuItem('Download 2 items')).toBeEnabled();
       expect(menuItem('Delete 2 items')).toBeEnabled();
     });
 
@@ -277,7 +277,6 @@ describe('SFTP pane', () => {
       expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual(
         ['New folder', 'Upload files…', 'Refresh', 'Select all'],
       );
-      expect(menuItem('Upload files…')).toBeDisabled();
       await user.click(menuItem('Select all'));
       expect(
         within(files())
@@ -531,6 +530,334 @@ describe('SFTP pane', () => {
     await user.keyboard('{Control>}{Shift>}B{/Shift}{/Control}');
     expect(screen.queryByRole('button', { name: /^SFTP/ })).toBeNull();
     expect(strip).not.toBeInTheDocument();
+  });
+
+  describe('transfers', () => {
+    const transfer = (patch: Partial<Transfer> = {}): Transfer => ({
+      id: '1',
+      direction: 'upload',
+      name: 'a.txt',
+      folder: '/home/me',
+      local: '/local/a.txt',
+      bytes: 0,
+      total: 1000 * 1024,
+      speed: 0,
+      state: 'queued',
+      ...patch,
+    });
+    const report = (backend: FakeBackend, patch: Partial<Transfer> = {}) =>
+      act(() =>
+        backend.emit({
+          type: 'transfer',
+          tab: 'tab-1',
+          transfer: transfer(patch),
+        }),
+      );
+    const list = () =>
+      within(pane()).getByRole('region', { name: 'Transfers' });
+
+    it('downloads the selected rows to the last folder, and Download to… to a picked folder', async () => {
+      const { backend, user } = await setup();
+      await user.pointer({
+        keys: '[MouseRight]',
+        target: fileRow('notes.txt'),
+      });
+      await user.click(menuItem('Download'));
+      expect(backend.sent('download')).toEqual([
+        ['tab-1', ['/home/me/notes.txt']],
+      ]);
+      await user.click(fileRow('notes.txt'));
+      await user.keyboard('{Control>}');
+      await user.click(fileRow('src'));
+      await user.keyboard('{/Control}');
+      await user.pointer({ keys: '[MouseRight]', target: fileRow('src') });
+      await user.click(menuItem('Download to…'));
+      await vi.waitFor(() => expect(backend.sent('download')).toHaveLength(2));
+      expect(backend.sent('download')[1]).toEqual([
+        'tab-1',
+        ['/home/me/src', '/home/me/notes.txt'],
+        '/local/picked',
+      ]);
+      // A cancelled picker downloads nothing.
+      backend.folder = undefined;
+      await user.pointer({ keys: '[MouseRight]', target: fileRow('src') });
+      await user.click(menuItem('Download to…'));
+      await new Promise((r) => setTimeout(r, 20));
+      expect(backend.sent('download')).toHaveLength(2);
+    });
+
+    it('uploads picked files into the folder the pane shows', async () => {
+      const { backend, user } = await setup();
+      await user.pointer({
+        keys: '[MouseRight]',
+        target: pane().querySelector('.file-list')!,
+      });
+      await user.click(menuItem('Upload files…'));
+      await vi.waitFor(() =>
+        expect(backend.sent('upload')).toEqual([
+          ['tab-1', ['/local/a.txt', '/local/b.txt'], '/home/me'],
+        ]),
+      );
+    });
+
+    it('uploads files dragged in from the OS, with a dashed overlay naming the folder', async () => {
+      const { backend } = await setup();
+      const list = pane().querySelector('.file-list')!;
+      const files = [new File(['x'], 'a.txt'), new File(['y'], 'b.txt')];
+      fireEvent.dragEnter(list, { dataTransfer: { types: ['Files'], files } });
+      expect(
+        within(pane()).getByText('Drop to upload to /home/me'),
+      ).toBeVisible();
+      fireEvent.dragLeave(list, { dataTransfer: { types: ['Files'] } });
+      expect(within(pane()).queryByText(/Drop to upload/)).toBeNull();
+      fireEvent.dragEnter(list, { dataTransfer: { types: ['Files'], files } });
+      fireEvent.drop(list, { dataTransfer: { types: ['Files'], files } });
+      expect(within(pane()).queryByText(/Drop to upload/)).toBeNull();
+      expect(backend.sent('upload')).toEqual([
+        ['tab-1', ['/local/a.txt', '/local/b.txt'], '/home/me'],
+      ]);
+      // Dragging text is no upload.
+      fireEvent.dragEnter(list, { dataTransfer: { types: ['text/plain'] } });
+      expect(within(pane()).queryByText(/Drop to upload/)).toBeNull();
+    });
+
+    it('lists transfers with the active count, direction, folder, progress, bytes and speed, and cancels', async () => {
+      const { backend, user } = await setup();
+      expect(
+        within(pane()).queryByRole('region', { name: 'Transfers' }),
+      ).toBeNull();
+      report(backend, {
+        state: 'running',
+        bytes: 450 * 1024,
+        speed: 120 * 1024,
+      });
+      report(backend, {
+        id: '2',
+        name: 'b.txt',
+        direction: 'download',
+        folder: '/local/dl',
+        local: '/local/dl/b.txt',
+      });
+      expect(within(list()).getByRole('heading')).toHaveTextContent(
+        'Transfers2',
+      );
+      const row = within(list()).getAllByRole('listitem')[0];
+      expect(within(row).getByLabelText('Upload')).toBeDefined();
+      expect(row).toHaveTextContent('a.txt');
+      expect(row).toHaveTextContent('/home/me');
+      expect(row).toHaveTextContent('45% · 450.0 KB of 1000.0 KB · 120.0 KB/s');
+      expect(within(row).getByRole('progressbar')).toHaveAttribute(
+        'value',
+        String(450 * 1024),
+      );
+      expect(within(list()).getAllByRole('listitem')[1]).toHaveTextContent(
+        'Queued',
+      );
+      expect(
+        within(within(list()).getAllByRole('listitem')[1]).getByLabelText(
+          'Download',
+        ),
+      ).toBeDefined();
+      await user.click(
+        within(row).getByRole('button', { name: 'Cancel a.txt' }),
+      );
+      expect(backend.sent('cancelTransfer')).toEqual([['tab-1', '1']]);
+      report(backend, { state: 'cancelled' });
+      expect(within(list()).getAllByRole('listitem')).toHaveLength(1);
+    });
+
+    it('shows a finished download as a Saved to link that reveals the file, and clears it after a few seconds', async () => {
+      const { backend, user } = await setup();
+      report(backend, {
+        direction: 'download',
+        folder: '/local/dl',
+        local: '/local/dl/a.txt',
+        state: 'done',
+        bytes: 1000 * 1024,
+      });
+      expect(within(list()).getByRole('heading')).toHaveTextContent(
+        'Transfers0',
+      );
+      await user.click(
+        within(list()).getByRole('button', { name: 'Saved to /local/dl' }),
+      );
+      expect(backend.shown).toEqual(['/local/dl/a.txt']);
+      await vi.waitFor(
+        () =>
+          expect(
+            within(pane()).queryByRole('region', { name: 'Transfers' }),
+          ).toBeNull(),
+        { timeout: 5000 },
+      );
+    }, 10_000);
+
+    it('shows the reason of a failed transfer in red and retries it', async () => {
+      const { backend, user } = await setup();
+      report(backend, { state: 'failed', reason: 'The Tab disconnected.' });
+      const row = within(list()).getAllByRole('listitem')[0];
+      expect(within(row).getByText('The Tab disconnected.')).toHaveClass(
+        'transfer-error',
+      );
+      await user.click(
+        within(row).getByRole('button', { name: 'Retry a.txt' }),
+      );
+      expect(backend.sent('retryTransfer')).toEqual([['tab-1', '1']]);
+    });
+
+    it("shows the running upload's percentage on the collapsed strip", async () => {
+      const { backend, user } = await setup();
+      await user.click(paneButton('Collapse SFTP pane'));
+      report(backend, { state: 'running', bytes: 512 * 1024 });
+      expect(
+        screen.getByRole('button', { name: '51% SFTP · web1' }),
+      ).toBeDefined();
+      report(backend, { state: 'done', bytes: 1000 * 1024 });
+      expect(screen.getByRole('button', { name: 'SFTP · web1' })).toBeDefined();
+    });
+
+    it('asks about a conflict with both sides, and answers for the other conflicts too', async () => {
+      const { backend, user } = await setup();
+      const conflict = {
+        name: 'report.txt',
+        local: {
+          size: 1200,
+          modified: new Date(2026, 10, 9, 14, 32).getTime(),
+        },
+        remote: { size: 300, modified: new Date(2026, 10, 10, 9, 5).getTime() },
+        others: 2,
+      };
+      act(() => backend.emit({ type: 'conflict', tab: 'tab-1', conflict }));
+      const dialog = within(pane()).getByRole('alertdialog', {
+        name: 'report.txt already exists',
+      });
+      expect(dialog).toHaveTextContent(
+        'On this computer1.2 KB · 2026-11-09 14:32',
+      );
+      expect(dialog).toHaveTextContent('On web1300 B · 2026-11-10 09:05');
+      expect(
+        within(dialog).getByRole('button', { name: 'Keep both' }),
+      ).toHaveFocus();
+      await user.click(
+        within(dialog).getByRole('checkbox', {
+          name: 'Apply to the other 2 conflicts',
+        }),
+      );
+      await user.click(
+        within(dialog).getByRole('button', { name: 'Overwrite' }),
+      );
+      expect(backend.sent('answerConflict')).toEqual([
+        ['tab-1', 'overwrite', true],
+      ]);
+      expect(within(pane()).queryByRole('alertdialog')).toBeNull();
+
+      act(() =>
+        backend.emit({
+          type: 'conflict',
+          tab: 'tab-1',
+          conflict: { ...conflict, others: 0 },
+        }),
+      );
+      expect(within(pane()).queryByRole('checkbox')).toBeNull();
+      await user.click(within(pane()).getByRole('button', { name: 'Skip' }));
+      expect(backend.sent('answerConflict')[1]).toEqual([
+        'tab-1',
+        'skip',
+        false,
+      ]);
+      // A void question closes the dialog.
+      act(() => backend.emit({ type: 'conflict', tab: 'tab-1', conflict }));
+      act(() => backend.emit({ type: 'conflict', tab: 'tab-1' }));
+      expect(within(pane()).queryByRole('alertdialog')).toBeNull();
+    });
+
+    it('opens a collapsed pane to ask about a conflict, and opens it again on a switch back to a Tab still asking', async () => {
+      const { backend, user } = await setup();
+      const conflict = {
+        name: 'report.txt',
+        local: { size: 1, modified: 0 },
+        remote: { size: 2, modified: 0 },
+        others: 0,
+      };
+      await user.click(paneButton('Collapse SFTP pane'));
+      act(() => backend.emit({ type: 'conflict', tab: 'tab-1', conflict }));
+      expect(
+        within(pane()).getByRole('alertdialog', {
+          name: 'report.txt already exists',
+        }),
+      ).toBeVisible();
+
+      await user.click(
+        screen.getByRole('button', { name: 'Open another Tab of db' }),
+      );
+      await vi.waitFor(() => expect(backend.sent('openSsh')).toHaveLength(2));
+      await user.click(paneButton('Collapse SFTP pane'));
+      await user.keyboard('{Control>}{Shift>}1{/Shift}{/Control}');
+      expect(
+        within(pane()).getByRole('alertdialog', {
+          name: 'report.txt already exists',
+        }),
+      ).toBeVisible();
+    });
+
+    it("warns in the pane when the transfer connection meets a key other than the Tab's", async () => {
+      const { backend } = await setup();
+      act(() =>
+        backend.emit({
+          type: 'transferKey',
+          tab: 'tab-1',
+          change: {
+            host: 'web1:22',
+            keyType: 'ssh-ed25519',
+            accepted: 'SHA256:old',
+            fingerprint: 'SHA256:new',
+          },
+        }),
+      );
+      const warning = within(pane()).getByRole('alert');
+      expect(warning).toHaveTextContent(
+        'The host key for transfers has changed',
+      );
+      expect(warning).toHaveTextContent(
+        'web1:22 sent a different key than the one the Tab accepted.',
+      );
+      expect(warning).toHaveTextContent(
+        'Tab accepted ssh-ed25519 key: SHA256:old',
+      );
+      expect(warning).toHaveTextContent('Key sent now: SHA256:new');
+      expect(
+        within(pane()).queryByRole('button', { name: /Trust|Replace/ }),
+      ).toBeNull();
+    });
+
+    it('asks before closing a Tab with pending transfers, and offers Show local copy', async () => {
+      const { backend, user } = await setup();
+      report(backend, { state: 'running' });
+      report(backend, { id: '2', name: 'b.txt', local: '/local/b.txt' });
+      await user.keyboard('{Control>}{Shift>}W{/Shift}{/Control}');
+      const confirm = screen.getByRole('alertdialog', { name: 'Close Tab' });
+      expect(confirm).toHaveTextContent(
+        'Close db with 2 transfers not finished?',
+      );
+      expect(
+        within(confirm).getByRole('button', { name: 'Cancel' }),
+      ).toHaveFocus();
+      await user.click(
+        within(confirm).getByRole('button', { name: 'Show local copy' }),
+      );
+      expect(backend.shown).toEqual(['/local/a.txt']);
+      await user.click(within(confirm).getByRole('button', { name: 'Cancel' }));
+      expect(backend.sent('close')).toEqual([]);
+      await user.keyboard('{Control>}{Shift>}W{/Shift}{/Control}');
+      await user.click(screen.getByRole('button', { name: 'Close Tab' }));
+      expect(backend.sent('close')).toEqual([['tab-1']]);
+    });
+
+    it('closes a Tab whose transfers are all finished or failed without asking', async () => {
+      const { backend, user } = await setup();
+      report(backend, { state: 'failed', reason: 'No such file' });
+      await user.keyboard('{Control>}{Shift>}W{/Shift}{/Control}');
+      expect(backend.sent('close')).toEqual([['tab-1']]);
+    });
   });
 
   it("tints the pane like its Tab's terminal", async () => {

@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, webFrame } from 'electron';
+import { contextBridge, ipcRenderer, webFrame, webUtils } from 'electron';
 import type {
   Dialogs,
   Message,
@@ -22,6 +22,10 @@ contextBridge.exposeInMainWorld('slop', {
   } satisfies Profiler,
   dialogs: {
     pickKeyFile: () => ipcRenderer.invoke('dialogs', 'pickKeyFile'),
+    pickFolder: () => ipcRenderer.invoke('dialogs', 'pickFolder'),
+    pickFiles: () => ipcRenderer.invoke('dialogs', 'pickFiles'),
+    showItem: (file) => ipcRenderer.invoke('dialogs', 'showItem', file),
+    pathForFile: (file) => webUtils.getPathForFile(file),
   } satisfies Dialogs,
   window: {
     setZoom: (factor) => webFrame.setZoomFactor(factor),

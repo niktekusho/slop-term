@@ -1,14 +1,14 @@
 import type { FileEntryWithStats, SFTPWrapper, Stats } from 'ssh2';
 import type { Listing } from '../shared/ipc.ts';
 
-const call = <T = void>(
+export const call = <T = void>(
   run: (done: (err: Error | null | undefined, value: T) => void) => void,
 ) =>
   new Promise<T>((resolve, reject) =>
     run((err, value) => (err ? reject(err) : resolve(value))),
   );
 
-const join = (folder: string, name: string) =>
+export const join = (folder: string, name: string) =>
   `${folder === '/' ? '' : folder}/${name}`;
 
 // ponytail: setuid, setgid and sticky bits don't show.

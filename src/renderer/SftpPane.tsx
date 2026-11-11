@@ -3,17 +3,25 @@ import {
   useId,
   useRef,
   useState,
+  type DragEvent,
   type KeyboardEvent,
   type MouseEvent,
 } from 'react';
 import type { ITheme } from '@xterm/xterm';
-import type {
-  BackendClient,
-  FileCounts as Counts,
-  Listing,
-  RemoteFile,
+import {
+  unfinished,
+  type BackendClient,
+  type Conflict,
+  type ConflictChoice,
+  type FileCounts as Counts,
+  type FileSide,
+  type Listing,
+  type RemoteFile,
+  type Transfer,
+  type TransferKeyChange,
 } from '../shared/ipc.ts';
-import { folderIcon, icon, type Tab } from './SessionTree.tsx';
+import { Modal } from './SessionDialog.tsx';
+import { folderIcon, hostOf, icon, type Tab } from './SessionTree.tsx';
 
 type SortKey = 'name' | 'size' | 'modified' | 'permissions';
 const columns: { key: SortKey; label: string }[] = [
@@ -188,6 +196,191 @@ function DeleteConfirm({
   );
 }
 
+/** How much of a transfer is done, in whole percent. */
+export const percent = (t: Transfer) =>
+  t.total ? Math.floor((t.bytes / t.total) * 100) : 0;
+
+const upArrow = (
+  <span role="img" aria-label="Upload" className="direction">
+    ↑
+  </span>
+);
+const downArrow = (
+  <span role="img" aria-label="Download" className="direction">
+    ↓
+  </span>
+);
+
+function TransferList({
+  transfers,
+  onCancel,
+  onRetry,
+  onShow,
+}: {
+  transfers: Transfer[];
+  onCancel(id: string): void;
+  onRetry(id: string): void;
+  onShow(file: string): void;
+}) {
+  const active = transfers.filter(unfinished).length;
+  const status = (t: Transfer) => {
+    if (t.state === 'queued') return 'Queued';
+    if (t.state === 'running')
+      return `${percent(t)}% · ${formatSize(t.bytes)} of ${formatSize(t.total)} · ${formatSize(t.speed)}/s`;
+    if (t.state === 'failed')
+      return <span className="transfer-error">{t.reason}</span>;
+    if (t.direction === 'upload') return 'Uploaded';
+    return (
+      <button className="link" onClick={() => onShow(t.local)}>
+        Saved to {t.folder}
+      </button>
+    );
+  };
+  return (
+    <section className="transfers" aria-label="Transfers">
+      <h3>
+        Transfers<span className="count">{active}</span>
+      </h3>
+      <ul>
+        {transfers.map((t) => (
+          <li key={t.id} className={t.state}>
+            <div className="transfer-line">
+              {t.direction === 'upload' ? upArrow : downArrow}
+              <span className="transfer-name">{t.name}</span>
+              <span className="transfer-folder">{t.folder}</span>
+              {unfinished(t) && (
+                <button
+                  aria-label={`Cancel ${t.name}`}
+                  title="Cancel"
+                  onClick={() => onCancel(t.id)}
+                >
+                  ×
+                </button>
+              )}
+              {t.state === 'failed' && (
+                <button
+                  aria-label={`Retry ${t.name}`}
+                  onClick={() => onRetry(t.id)}
+                >
+                  Retry
+                </button>
+              )}
+            </div>
+            {t.state === 'running' && (
+              <progress
+                aria-label={`${t.name} progress`}
+                value={t.bytes}
+                max={t.total || 1}
+              />
+            )}
+            <div className="transfer-status">{status(t)}</div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** Asks what to do with a transfer whose target exists. Keep both is the default: it loses nothing. */
+function ConflictDialog({
+  conflict,
+  host,
+  onAnswer,
+}: {
+  conflict: Conflict;
+  host: string;
+  onAnswer(choice: ConflictChoice, all: boolean): void;
+}) {
+  const [all, setAll] = useState(false);
+  const side = (s: FileSide) =>
+    `${formatSize(s.size)} · ${formatTime(s.modified)}`;
+  const { name, others } = conflict;
+  return (
+    <div
+      role="alertdialog"
+      aria-modal="true"
+      aria-label={`${name} already exists`}
+      className="sftp-confirm"
+      onKeyDown={(e) => e.key === 'Escape' && onAnswer('skip', all)}
+    >
+      <h3>{name} already exists</h3>
+      <dl className="conflict-sides">
+        <dt>On this computer</dt>
+        <dd>{side(conflict.local)}</dd>
+        <dt>On {host}</dt>
+        <dd>{side(conflict.remote)}</dd>
+      </dl>
+      {others > 0 && (
+        <label className="apply-all">
+          <input
+            type="checkbox"
+            checked={all}
+            onChange={(e) => setAll(e.target.checked)}
+          />
+          Apply to the other {others} {others === 1 ? 'conflict' : 'conflicts'}
+        </label>
+      )}
+      <div className="question-actions">
+        <button onClick={() => onAnswer('overwrite', all)}>Overwrite</button>
+        <button onClick={() => onAnswer('skip', all)}>Skip</button>
+        <button autoFocus onClick={() => onAnswer('keep', all)}>
+          Keep both
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Asks before a Tab closes with transfers still queued or running. Show local copy reveals the first one's file on this computer. */
+export function CloseTabConfirm({
+  name,
+  pending,
+  onShow,
+  onCancel,
+  onClose,
+}: {
+  name: string;
+  pending: Transfer[];
+  onShow(file: string): void;
+  onCancel(): void;
+  onClose(): void;
+}) {
+  const n = pending.length;
+  return (
+    <Modal
+      label="Close Tab"
+      role="alertdialog"
+      className="confirm"
+      onCancel={onCancel}
+    >
+      <h2>
+        Close {name} with {n} {n === 1 ? 'transfer' : 'transfers'} not finished?
+      </h2>
+      <p>Closing the Tab stops them.</p>
+      <footer>
+        {/* An unfinished download may have no file yet: its folder shows instead. */}
+        <button
+          onClick={() =>
+            onShow(
+              pending[0].direction === 'upload'
+                ? pending[0].local
+                : pending[0].folder,
+            )
+          }
+        >
+          Show local copy
+        </button>
+        <button autoFocus onClick={onCancel}>
+          Cancel
+        </button>
+        <button className="danger" onClick={onClose}>
+          Close Tab
+        </button>
+      </footer>
+    </Modal>
+  );
+}
+
 /**
  * The SFTP pane of one Tab. It stays mounted while hidden, so its folder and selection survive a switch of Tabs.
  * It lists only while `shown` and connected: the first listing opens the back end's SFTP channel.
@@ -235,6 +428,9 @@ export function SftpPane({
     folders: string[];
     counts?: Record<string, Counts>;
   }>();
+  const [conflict, setConflict] = useState<Conflict>();
+  const [keyChange, setKeyChange] = useState<TransferKeyChange>();
+  const [dragging, setDragging] = useState(false);
   const menuRef = useRef<HTMLUListElement>(null);
   const grid = useRef<HTMLTableElement>(null);
   // A later request wins, so a slow listing can't replace a newer one.
@@ -251,8 +447,12 @@ export function SftpPane({
     () =>
       backend.onEvent((event) => {
         if (!('tab' in event) || event.tab !== tab.id) return;
-        if (event.type === 'connected') {
+        if (event.type === 'conflict') setConflict(event.conflict);
+        else if (event.type === 'transferKey') setKeyChange(event.change);
+        else if (event.type === 'connected') {
           setConnected(true);
+          // A new connection accepted a key of its own: the next transfer checks against that.
+          setKeyChange(undefined);
           // A reconnect lists the folder the pane showed before the drop.
           refresh();
         } else if (event.type === 'dropped' || event.type === 'exit')
@@ -423,15 +623,32 @@ export function SftpPane({
       </button>
     </li>
   );
-  // ponytail: downloads and uploads belong to ticket 18 and the editor to ticket 19, so their items stay disabled.
+  const pickedPaths = () => picked.map((f) => join(at, f.name));
+  const download = () => backend.download(tab.id, pickedPaths()).catch(fail);
+  const downloadTo = async () => {
+    const paths = pickedPaths();
+    const folder = await backend.pickFolder();
+    if (folder) await backend.download(tab.id, paths, folder).catch(fail);
+  };
+  const upload = (paths: string[]) =>
+    paths.length && backend.upload(tab.id, paths, at).catch(fail);
+  const uploadFiles = async () => upload(await backend.pickFiles());
+  // Text or a row dragged inside the page carries no files.
+  const carriesFiles = (e: DragEvent) =>
+    !down && !!listing && [...e.dataTransfer.types].includes('Files');
+
+  // ponytail: the editor belongs to ticket 19, so Open in editor stays disabled.
   const rowMenu = () => [
     one &&
       item(
         one.folder ? 'Open' : 'Open in editor',
         one.folder ? () => open(one) : undefined,
       ),
-    item(picked.length > 1 ? `Download ${picked.length} items` : 'Download'),
-    item('Download to…'),
+    item(
+      picked.length > 1 ? `Download ${picked.length} items` : 'Download',
+      download,
+    ),
+    item('Download to…', downloadTo),
     item('Rename', () => setEditing({ rename: one!.name }), { disabled: !one }),
     <li key="separator" role="separator" />,
     item(
@@ -444,7 +661,7 @@ export function SftpPane({
   ];
   const spaceMenu = () => [
     item('New folder', () => setEditing({ create: true })),
-    item('Upload files…'),
+    item('Upload files…', uploadFiles),
     item('Refresh', refresh),
     item('Select all', selectAll),
   ];
@@ -536,6 +753,23 @@ export function SftpPane({
               {error}
             </p>
           )}
+          {keyChange && (
+            <div role="alert" className="sftp-banner danger key-change">
+              <strong>The host key for transfers has changed</strong>
+              <p>
+                {keyChange.host} sent a different key than the one the Tab
+                accepted. Someone could be intercepting the connection.
+                Transfers fail until the key matches. Reconnect the Tab to check
+                the key.
+              </p>
+              <p>
+                Tab accepted {keyChange.keyType} key:{' '}
+                <code>{keyChange.accepted}</code>
+                <br />
+                Key sent now: <code>{keyChange.fingerprint}</code>
+              </p>
+            </div>
+          )}
           <div
             className={down ? 'file-list greyed' : 'file-list'}
             inert={down}
@@ -543,7 +777,27 @@ export function SftpPane({
               e.preventDefault();
               setMenu({ left: e.clientX, top: e.clientY, row: false });
             }}
+            onDragEnter={(e) => {
+              if (!carriesFiles(e)) return;
+              e.preventDefault();
+              setDragging(true);
+            }}
+            // The browser only drops where dragover is cancelled.
+            onDragOver={(e) => carriesFiles(e) && e.preventDefault()}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node | null))
+                setDragging(false);
+            }}
+            onDrop={(e) => {
+              if (!carriesFiles(e)) return;
+              e.preventDefault();
+              setDragging(false);
+              upload([...e.dataTransfer.files].map(backend.pathForFile));
+            }}
           >
+            {dragging && (
+              <div className="drop-overlay">Drop to upload to {at}</div>
+            )}
             <table
               ref={grid}
               role="grid"
@@ -649,6 +903,25 @@ export function SftpPane({
             >
               {menu.row ? rowMenu() : spaceMenu()}
             </ul>
+          )}
+          {!!tab.transfers?.length && (
+            <TransferList
+              transfers={tab.transfers}
+              onCancel={(id) => backend.cancelTransfer(tab.id, id)}
+              onRetry={(id) => backend.retryTransfer(tab.id, id)}
+              onShow={(file) => backend.showItem(file)}
+            />
+          )}
+          {conflict && (
+            <ConflictDialog
+              key={conflict.name}
+              conflict={conflict}
+              host={hostOf(tab) ?? 'the host'}
+              onAnswer={(choice, all) => {
+                setConflict(undefined);
+                backend.answerConflict(tab.id, choice, all);
+              }}
+            />
           )}
           {/* A drop hides the confirm: its Delete couldn't reach the host. */}
           {deleting && !down && (
