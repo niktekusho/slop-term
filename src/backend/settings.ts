@@ -89,6 +89,8 @@ function parse(raw: Record<string, unknown>): Settings {
   if (isPositive(raw.fontSize)) settings.fontSize = raw.fontSize;
   if (isPositive(raw.scrollback)) settings.scrollback = raw.scrollback;
   if (typeof raw.editor === 'string') settings.editor = raw.editor;
+  if (typeof raw.uploadOnSave === 'boolean')
+    settings.uploadOnSave = raw.uploadOnSave;
   const tint = raw.sessionColourTint;
   if (typeof tint === 'number' && tint >= 0 && tint <= 100)
     settings.sessionColourTint = tint;

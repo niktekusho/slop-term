@@ -1,3 +1,4 @@
+import path from 'node:path';
 import {
   serve,
   type BackendEvent,
@@ -23,7 +24,11 @@ const emit = (event: BackendEvent) => send({ event });
 const dataDir = process.argv.at(-1)!;
 
 const settings = createSettings(dataDir, emit);
-const { renamed, ...sessions } = createSessions(emit, settings);
+const { renamed, ...sessions } = createSessions(
+  emit,
+  settings,
+  path.join(dataDir, 'editor-sync'),
+);
 const { provider: tpm, ...tpmMethods } = createTpm(settings.settings);
 providers.tpm = tpm;
 const { provider: keepass, ...keepassMethods } = createKeepass(

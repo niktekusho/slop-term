@@ -112,37 +112,55 @@ export async function startBackend(
       path.join(home, 'Library', 'Keychains'),
     );
   }
-  const child = fork(path.join(import.meta.dirname, 'main.ts'), [home], {
-    execPath: electronPath as unknown as string,
-    env: {
-      ...process.env,
-      ELECTRON_RUN_AS_NODE: '1',
-      HOME: home,
-      USERPROFILE: home,
-      ...env,
-    },
-    stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
-  });
-  await new Promise<void>((resolve, reject) => {
-    child.once('spawn', resolve);
-    child.once('error', reject);
-  });
-  child.once('exit', (code) => {
-    if (code) throw new Error(`back end exited with code ${code}`);
-  });
   const events: BackendEvent[] = [];
-  const backend = createClient(
-    (request) => child.send(request),
-    (listener) => child.on('message', (m) => listener(m as Message)),
-  );
-  backend.onEvent((event) => events.push(event));
-  // The spawn event comes before the back end has created `~/.ssh` and its include line. An answer means its startup is done.
-  await backend.settings();
+  async function launch() {
+    const child = fork(path.join(import.meta.dirname, 'main.ts'), [home], {
+      execPath: electronPath as unknown as string,
+      env: {
+        ...process.env,
+        ELECTRON_RUN_AS_NODE: '1',
+        HOME: home,
+        USERPROFILE: home,
+        ...env,
+      },
+      stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
+    });
+    await new Promise<void>((resolve, reject) => {
+      child.once('spawn', resolve);
+      child.once('error', reject);
+    });
+    child.once('exit', (code) => {
+      if (code) throw new Error(`back end exited with code ${code}`);
+    });
+    const backend = createClient(
+      (request) => child.send(request),
+      (listener) => child.on('message', (m) => listener(m as Message)),
+    );
+    backend.onEvent((event) => events.push(event));
+    // The spawn event comes before the back end has created `~/.ssh` and its include line. An answer means its startup is done.
+    await backend.settings();
+    return { child, backend };
+  }
+  let { child, backend } = await launch();
+  const kill = async () => {
+    if (child.exitCode === null && child.signalCode === null) {
+      const exited = new Promise((resolve) => child.once('exit', resolve));
+      child.kill();
+      await exited;
+    }
+  };
 
   return {
-    backend,
+    get backend() {
+      return backend;
+    },
     home,
     events,
+    /** Kills the back end as a crash would and starts a new one on the same home folder. */
+    async crash() {
+      await kill();
+      ({ child, backend } = await launch());
+    },
     output: (tab: TabId) =>
       events
         .flatMap((e) => (e.type === 'output' && e.tab === tab ? e.data : []))
@@ -155,11 +173,7 @@ export async function startBackend(
     dropped: (tab: TabId) =>
       events.filter((e) => e.type === 'dropped' && e.tab === tab),
     async stop() {
-      if (child.exitCode === null && child.signalCode === null) {
-        const exited = new Promise((resolve) => child.once('exit', resolve));
-        child.kill();
-        await exited;
-      }
+      await kill();
       // Windows ends a killed back end's shells a moment later, and until then each holds its start folder open.
       await rm(home, {
         recursive: true,

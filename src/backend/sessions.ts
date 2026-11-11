@@ -13,6 +13,7 @@ import { shellMissing } from '../shared/session-rules.ts';
 import { blockLines, localShell } from './config-store.ts';
 import { detectShells, spawnLine } from './shells.ts';
 import { oscScanner } from './osc.ts';
+import { createEditorSync, recoverEdits } from './editor-sync.ts';
 import { createTransfers } from './transfers.ts';
 import {
   notConnected,
@@ -62,6 +63,8 @@ const ptyTab =
 export function createSessions(
   emit: (event: BackendEvent) => void,
   settings: Pick<Backend, 'settings' | 'updateSettings'>,
+  /** Where editor-sync copies live, one folder each. */
+  editorRoot: string,
 ): Pick<
   Backend,
   | 'listShells'
@@ -86,6 +89,9 @@ export function createSessions(
   | 'cancelTransfer'
   | 'retryTransfer'
   | 'answerConflict'
+  | 'openInEditor'
+  | 'answerEditorSave'
+  | 'unsentEdits'
 > & {
   /** Points the SSH Tabs of a renamed Saved session at its new alias, so a reconnect finds it. */
   renamed(from: string, to: string): void;
@@ -101,20 +107,38 @@ export function createSessions(
   const files = (tab: TabId) =>
     tabs.get(tab)?.files?.() ?? Promise.reject(notConnected());
 
+  const transferChannel = (tab: TabId) => () =>
+    tabs.get(tab)?.transferChannel?.() ?? Promise.reject(notConnected());
+
   // Kept across reconnects, so a transfer that failed on a drop can retry on the new connection.
   const queues = new Map<TabId, ReturnType<typeof createTransfers>>();
   const queue = (tab: TabId) => {
     let q = queues.get(tab);
     if (!q) {
-      q = createTransfers(
-        tab,
-        emit,
-        () =>
-          tabs.get(tab)?.transferChannel?.() ?? Promise.reject(notConnected()),
-      );
+      q = createTransfers(tab, emit, transferChannel(tab));
       queues.set(tab, q);
     }
     return q;
+  };
+
+  // Runs before the first copy opens, so it never deletes a new one.
+  const unsent = recoverEdits(editorRoot);
+  // Kept across reconnects, so a save that waits for the connection goes out on the new one.
+  const syncs = new Map<TabId, ReturnType<typeof createEditorSync>>();
+  const sync = (tab: TabId) => {
+    let s = syncs.get(tab);
+    if (!s) {
+      s = createEditorSync(
+        tab,
+        emit,
+        transferChannel(tab),
+        editorRoot,
+        settings.settings,
+        () => targets.get(tab)?.alias ?? '',
+      );
+      syncs.set(tab, s);
+    }
+    return s;
   };
 
   const start = (tab: TabId, open: Open) => {
@@ -126,8 +150,11 @@ export function createSessions(
     const send = (event: BackendEvent) => {
       emit(event);
       if (event.type === 'output') scan(event.data);
-      if (event.type === 'dropped' || event.type === 'exit')
+      if (event.type === 'dropped' || event.type === 'exit') {
         queues.get(tab)?.fail('The Tab disconnected.');
+        syncs.get(tab)?.dropped();
+      }
+      if (event.type === 'connected') syncs.get(tab)?.connected();
     };
     const live = open(tab, send, () => {
       if (tabs.get(tab) === live) tabs.delete(tab);
@@ -201,7 +228,10 @@ export function createSessions(
       firstHosts.delete(tab);
       queues.get(tab)?.fail('The Tab closed.');
       queues.delete(tab);
+      const edits = syncs.get(tab);
+      syncs.delete(tab);
       tabs.get(tab)?.close();
+      await edits?.close();
     },
 
     async restart(tab) {
@@ -242,8 +272,19 @@ export function createSessions(
     },
 
     cancelTransfer: async (tab, id) => queues.get(tab)?.cancel(id),
-    retryTransfer: async (tab, id) => queues.get(tab)?.retry(id),
+    retryTransfer: async (tab, id) => {
+      queues.get(tab)?.retry(id);
+      syncs.get(tab)?.retry(id);
+    },
     answerConflict: async (tab, choice, all) =>
       queues.get(tab)?.answer(choice, all),
+
+    async openInEditor(tab, path) {
+      await unsent;
+      await sync(tab).open(path);
+    },
+    unsentEdits: () => unsent,
+    answerEditorSave: async (tab, id, upload) =>
+      syncs.get(tab)?.answer(id, upload),
   };
 }

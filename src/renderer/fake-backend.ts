@@ -18,6 +18,7 @@ import {
   type Shell,
   type TabId,
   type TpmFind,
+  type UnsentEdit,
 } from '../shared/ipc.ts';
 import {
   inFolder,
@@ -64,6 +65,8 @@ export class FakeBackend implements BackendClient {
   remoteHome = '/home/me';
   /** What `measureFiles` answers per path; a path without one is a single file of 0 bytes. */
   measures: Record<string, FileCounts> = {};
+  /** What `unsentEdits` answers at startup. */
+  unsent: UnsentEdit[] = [];
   private listeners = new Set<(event: BackendEvent) => void>();
   private nextTab = 1;
   private holds = new Map<keyof Backend, Promise<void>>();
@@ -417,6 +420,19 @@ export class FakeBackend implements BackendClient {
 
   async answerConflict(...args: Parameters<Backend['answerConflict']>) {
     this.requests.push({ method: 'answerConflict', args });
+  }
+
+  async openInEditor(...args: Parameters<Backend['openInEditor']>) {
+    this.requests.push({ method: 'openInEditor', args });
+  }
+
+  async answerEditorSave(...args: Parameters<Backend['answerEditorSave']>) {
+    this.requests.push({ method: 'answerEditorSave', args });
+  }
+
+  async unsentEdits() {
+    this.requests.push({ method: 'unsentEdits', args: [] });
+    return this.unsent;
   }
 
   async pickKeyFile() {

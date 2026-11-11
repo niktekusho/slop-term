@@ -9,7 +9,7 @@ import {
   type TabId,
   type Transfer,
 } from '../shared/ipc.ts';
-import { call, join } from './sftp.ts';
+import { call, join, whenClosed } from './sftp.ts';
 
 /**
  * `from` and `to` are the source and target paths, local or remote by direction. `abort` ends a running transfer.
@@ -206,13 +206,7 @@ export function createTransfers(
       sftp = await channel();
       const open = sftp;
       item.abort = () => open.end();
-      // A host that closes the channel mid-copy can leave fastPut's callback uncalled: ssh2 then sends a CLOSE no one answers.
-      const closed = new Promise<never>((_, reject) =>
-        open.once('close', () =>
-          reject(new Error('The host closed the transfer channel.')),
-        ),
-      );
-      closed.catch(() => {});
+      const closed = whenClosed(open);
       if (item.transfer.state !== 'running') return;
       const { folders, files } = await (upload
         ? localContents(item.from)

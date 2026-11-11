@@ -253,7 +253,7 @@ describe('SFTP pane', () => {
         keys: '[MouseRight]',
         target: fileRow('notes.txt'),
       });
-      expect(menuItem('Open in editor')).toBeDisabled();
+      expect(menuItem('Open in editor')).toBeEnabled();
       expect(menuItem('Download')).toBeEnabled();
       expect(menuItem('Download to…')).toBeEnabled();
       await user.keyboard('{Escape}');
@@ -857,6 +857,175 @@ describe('SFTP pane', () => {
       report(backend, { state: 'failed', reason: 'No such file' });
       await user.keyboard('{Control>}{Shift>}W{/Shift}{/Control}');
       expect(backend.sent('close')).toEqual([['tab-1']]);
+    });
+
+    describe('editor sync', () => {
+      const edit = (patch: Partial<Transfer> = {}) =>
+        transfer({
+          id: 'edit-1',
+          direction: 'download',
+          name: 'app.conf',
+          folder: '/srv',
+          local: '/tmp/editor-sync/edit-1/app.conf',
+          state: 'done',
+          edit: { app: 'VS Code' },
+          ...patch,
+        });
+      const reportEdit = (
+        backend: FakeBackend,
+        patch: Partial<Transfer> = {},
+      ) =>
+        act(() =>
+          backend.emit({
+            type: 'transfer',
+            tab: 'tab-1',
+            transfer: edit(patch),
+          }),
+        );
+
+      it('opens a file in the editor on double-click, Enter and Open in editor', async () => {
+        const { backend, user } = await setup();
+        await user.dblClick(fileRow('notes.txt'));
+        expect(backend.sent('openInEditor')).toEqual([
+          ['tab-1', '/home/me/notes.txt'],
+        ]);
+        await user.click(fileRow('run.sh'));
+        await user.keyboard('{Enter}');
+        await user.pointer({ keys: '[MouseRight]', target: fileRow('run.sh') });
+        await user.click(menuItem('Open in editor'));
+        expect(backend.sent('openInEditor').slice(1)).toEqual([
+          ['tab-1', '/home/me/run.sh'],
+          ['tab-1', '/home/me/run.sh'],
+        ]);
+      });
+
+      it('shows an open file as a row naming its editor and last upload, which stays', async () => {
+        const { backend, user } = await setup();
+        reportEdit(backend);
+        const row = () => within(list()).getAllByRole('listitem')[0];
+        expect(row()).toHaveTextContent('open in VS Code');
+        reportEdit(backend, {
+          edit: {
+            app: 'VS Code',
+            uploaded: new Date(2026, 10, 11, 15, 41).getTime(),
+          },
+        });
+        expect(row()).toHaveTextContent('open in VS Code · uploaded 15:41');
+        expect(within(row()).queryByRole('button')).toBeNull();
+
+        reportEdit(backend, { state: 'queued' });
+        expect(row()).toHaveTextContent('Waiting for connection');
+        expect(within(row()).queryByRole('button')).toBeNull();
+        reportEdit(backend, { state: 'failed', reason: 'Permission denied' });
+        await user.click(
+          within(row()).getByRole('button', { name: 'Retry app.conf' }),
+        );
+        expect(backend.sent('retryTransfer')).toEqual([['tab-1', 'edit-1']]);
+
+        reportEdit(backend, { state: 'done' });
+        await new Promise((r) => setTimeout(r, 3500));
+        expect(row()).toHaveTextContent('open in VS Code');
+      }, 10_000);
+
+      it('asks before uploading over a remote file that changed, and on each save with upload on save off', async () => {
+        const { backend, user } = await setup();
+        await user.click(paneButton('Collapse SFTP pane'));
+        act(() =>
+          backend.emit({
+            type: 'editorSave',
+            tab: 'tab-1',
+            question: { id: 'edit-1', name: 'app.conf', reason: 'changed' },
+          }),
+        );
+        const changed = within(pane()).getByRole('alertdialog', {
+          name: 'app.conf changed on web1',
+        });
+        expect(changed).toHaveTextContent(
+          'Someone changed it since you opened it.',
+        );
+        act(() =>
+          backend.emit({
+            type: 'tree',
+            tree: { ...backend.tree, sessions: [{ alias: 'db2' }] },
+          }),
+        );
+        await user.click(
+          within(changed).getByRole('button', { name: 'Overwrite' }),
+        );
+        expect(backend.sent('answerEditorSave')).toEqual([
+          ['tab-1', 'edit-1', true],
+        ]);
+        expect(within(pane()).queryByRole('alertdialog')).toBeNull();
+
+        act(() =>
+          backend.emit({
+            type: 'editorSave',
+            tab: 'tab-1',
+            question: { id: 'edit-1', name: 'app.conf', reason: 'save' },
+          }),
+        );
+        const save = within(pane()).getByRole('alertdialog', {
+          name: 'Upload app.conf to web1?',
+        });
+        await user.click(within(save).getByRole('button', { name: 'Not now' }));
+        expect(backend.sent('answerEditorSave')[1]).toEqual([
+          'tab-1',
+          'edit-1',
+          false,
+        ]);
+
+        // A void question closes the dialog.
+        act(() =>
+          backend.emit({
+            type: 'editorSave',
+            tab: 'tab-1',
+            question: { id: 'edit-1', name: 'app.conf', reason: 'save' },
+          }),
+        );
+        act(() => backend.emit({ type: 'editorSave', tab: 'tab-1' }));
+        expect(within(pane()).queryByRole('alertdialog')).toBeNull();
+      });
+
+      it('asks before closing a Tab with a file open in an editor, and shows its copy', async () => {
+        const { backend, user } = await setup();
+        reportEdit(backend);
+        await user.keyboard('{Control>}{Shift>}W{/Shift}{/Control}');
+        const confirm = screen.getByRole('alertdialog', { name: 'Close Tab' });
+        expect(confirm).toHaveTextContent(
+          'Close db with 1 file open in an editor?',
+        );
+        expect(confirm).toHaveTextContent(
+          'Closing the Tab deletes the copies it opened, with any save not uploaded.',
+        );
+        await user.click(
+          within(confirm).getByRole('button', { name: 'Show local copy' }),
+        );
+        expect(backend.shown).toEqual(['/tmp/editor-sync/edit-1/app.conf']);
+      });
+
+      it('lists the copies with saves that never reached the host at startup', async () => {
+        const backend = new FakeBackend();
+        backend.unsent = [
+          { alias: 'db', remote: '/srv/app.conf', file: '/tmp/es/a/app.conf' },
+        ];
+        const user = userEvent.setup();
+        render(<App backend={backend} mac={false} />);
+        const dialog = await screen.findByRole('dialog', {
+          name: 'Unsent edits',
+        });
+        expect(dialog).toHaveTextContent(
+          'These copies have saves that never reached the host.',
+        );
+        expect(dialog).toHaveTextContent('db:/srv/app.conf');
+        await user.click(
+          within(dialog).getByRole('button', { name: '/tmp/es/a/app.conf' }),
+        );
+        expect(backend.shown).toEqual(['/tmp/es/a/app.conf']);
+        await user.click(within(dialog).getByRole('button', { name: 'Close' }));
+        expect(
+          screen.queryByRole('dialog', { name: 'Unsent edits' }),
+        ).toBeNull();
+      });
     });
   });
 

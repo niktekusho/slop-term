@@ -107,7 +107,7 @@ export function testKeyPair(
 /**
  * An in-process SSH server for what OpenSSH in Docker can't show: keepalive and connection counts, drops on demand, a host key change, held SFTP writes.
  * Any login works, or with `code` only a keyboard-interactive login that answers it, or with `password` only that password. `users` lists each login's user name.
- * With `sftp`, it answers what an upload needs and keeps the uploaded files in `files`, by path; without, it has no SFTP subsystem.
+ * With `sftp`, it answers what an upload or a download needs and keeps the files in `files`, by path; without, it has no SFTP subsystem.
  */
 export async function startFakeSshServer({
   code,
@@ -118,6 +118,8 @@ export async function startFakeSshServer({
   const connections = new Set<Connection>();
   const shells = new Set<ServerChannel>();
   const files = new Map<string, Buffer>();
+  // In seconds, as SFTP reports them. A file without one reads 0.
+  const mtimes = new Map<string, number>();
   let keepalives = 0;
   const perConnection = new Map<string, number>();
   let opened = 0;
@@ -132,12 +134,21 @@ export async function startFakeSshServer({
       sftps.add(s);
       const handles = new Map<number, string>();
       let next = 0;
-      const { OK, NO_SUCH_FILE } = utils.sftp.STATUS_CODE;
-      s.on('OPEN', (id, path) => {
-        files.set(path, Buffer.alloc(0));
+      const { OK, EOF, NO_SUCH_FILE } = utils.sftp.STATUS_CODE;
+      const { TRUNC } = utils.sftp.OPEN_MODE;
+      s.on('OPEN', (id, path, flags) => {
+        if (flags & TRUNC) {
+          files.set(path, Buffer.alloc(0));
+          mtimes.set(path, Math.floor(Date.now() / 1000));
+        } else if (!files.has(path)) return s.status(id, NO_SUCH_FILE);
         handles.set(next, path);
         s.handle(id, Buffer.from([next++]));
       })
+        .on('READ', (id, handle, offset, length) => {
+          const file = files.get(handles.get(handle[0])!)!;
+          if (offset >= file.length) return s.status(id, EOF);
+          s.data(id, file.subarray(offset, offset + length));
+        })
         .on('WRITE', (id, handle, offset, data) => {
           const path = handles.get(handle[0])!;
           waiting++;
@@ -164,7 +175,7 @@ export async function startFakeSshServer({
             uid: 0,
             gid: 0,
             atime: 0,
-            mtime: 0,
+            mtime: mtimes.get(path) ?? 0,
           });
         });
     });
@@ -223,6 +234,8 @@ export async function startFakeSshServer({
     port: (server.address() as { port: number }).port,
     users,
     files,
+    /** Modified times in seconds, by path. Opening a file to write sets it to now. */
+    mtimes,
     keepalives: () => keepalives,
     /** The keepalive count of each connection that sent one. */
     keepalivesPerConnection: () => [...perConnection.values()],

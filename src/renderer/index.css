@@ -626,6 +626,23 @@ body,
   width: 420px;
 }
 
+.unsent-edits {
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.unsent-edits li {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+
+.unsent-edits .link {
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
 .move-to {
   width: 360px;
 }

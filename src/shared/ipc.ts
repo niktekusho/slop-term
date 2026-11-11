@@ -35,6 +35,8 @@ export type Settings = {
   fontSize: number;
   scrollback: number;
   editor?: string;
+  /** Off, each save of an editor-sync file asks before it uploads. */
+  uploadOnSave: boolean;
   /** How far a coloured Tab's backgrounds mix toward its Session colour, in percent. 0 turns the tint off. */
   sessionColourTint: number;
   /** The TPM address up to and including `index.php`, as `https://tpm.example.com/index.php`. Unset means TPM isn't set up on this machine. */
@@ -83,6 +85,7 @@ export const defaultSettings: Settings = {
   theme: 'system',
   fontSize: 12,
   scrollback: 1000,
+  uploadOnSave: true,
   sessionColourTint: 10,
   keepassDatabases: [],
 };
@@ -206,6 +209,11 @@ export type Transfer = {
   speed: number;
   state: 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
   reason?: string;
+  /**
+   * An editor-sync file, open in `app`. It downloads first, then each save uploads it again; `queued` waits for the connection.
+   * `uploaded` is the last upload, in ms since 1970.
+   */
+  edit?: { app: string; uploaded?: number };
 };
 
 /** Queued or running: a cancel can still stop it, and closing its Tab asks first. */
@@ -225,6 +233,16 @@ export type Conflict = {
 
 /** `keep` transfers under a free name with a ` (1)` suffix. */
 export type ConflictChoice = 'overwrite' | 'skip' | 'keep';
+
+/** A save of an editor-sync file waiting on the user: `save` when upload on save is off, `changed` when the remote file changed since the last download or upload. */
+export type EditorQuestion = {
+  id: string;
+  name: string;
+  reason: 'save' | 'changed';
+};
+
+/** An editor-sync copy, found at startup, with a save that never reached `remote` on host `alias`. */
+export type UnsentEdit = { alias: string; remote: string; file: string };
 
 /** The transfer connection met a host key other than the one the Tab accepted. Fingerprints are SHA256. */
 export type TransferKeyChange = {
@@ -371,6 +389,12 @@ export interface Backend {
     choice: ConflictChoice,
     all: boolean,
   ): Promise<void>;
+  /** Downloads a remote file to the app's temp folder and opens it in the editor. Its row and its uploads come as `transfer` events. */
+  openInEditor(tab: TabId, path: string): Promise<void>;
+  /** `true` uploads the save the question is about; `false` keeps it on this computer only. */
+  answerEditorSave(tab: TabId, id: string, upload: boolean): Promise<void>;
+  /** The copies the back end found at startup with saves that never reached the host. It deleted the other copies. */
+  unsentEdits(): Promise<UnsentEdit[]>;
 }
 
 // Served by the main process, where native dialogs and the file manager live. Only `pathForFile` comes from the preload.
@@ -430,6 +454,8 @@ export type BackendEvent =
   /** None means no question is open: it was answered, or the Tab dropped or closed. */
   | { type: 'conflict'; tab: TabId; conflict?: Conflict }
   | { type: 'transferKey'; tab: TabId; change: TransferKeyChange }
+  /** None closes the question, as for `conflict`. */
+  | { type: 'editorSave'; tab: TabId; question?: EditorQuestion }
   | { type: 'settings'; settings: Settings }
   | { type: 'tree'; tree: SessionTree };
 
@@ -510,6 +536,9 @@ const methods: { [M in keyof Backend]: true } = {
   cancelTransfer: true,
   retryTransfer: true,
   answerConflict: true,
+  openInEditor: true,
+  answerEditorSave: true,
+  unsentEdits: true,
 };
 
 export function serve(backend: Backend, send: (message: Message) => void) {

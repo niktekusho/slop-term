@@ -13,12 +13,14 @@ import {
   type BackendClient,
   type Conflict,
   type ConflictChoice,
+  type EditorQuestion,
   type FileCounts as Counts,
   type FileSide,
   type Listing,
   type RemoteFile,
   type Transfer,
   type TransferKeyChange,
+  type UnsentEdit,
 } from '../shared/ipc.ts';
 import { Modal } from './SessionDialog.tsx';
 import { folderIcon, hostOf, icon, type Tab } from './SessionTree.tsx';
@@ -211,6 +213,12 @@ const downArrow = (
   </span>
 );
 
+const editMark = (
+  <span role="img" aria-label="Editor sync" className="direction">
+    ✎
+  </span>
+);
+
 function TransferList({
   transfers,
   onCancel,
@@ -224,11 +232,16 @@ function TransferList({
 }) {
   const active = transfers.filter(unfinished).length;
   const status = (t: Transfer) => {
-    if (t.state === 'queued') return 'Queued';
+    if (t.state === 'queued')
+      return t.edit ? 'Waiting for connection' : 'Queued';
     if (t.state === 'running')
       return `${percent(t)}% · ${formatSize(t.bytes)} of ${formatSize(t.total)} · ${formatSize(t.speed)}/s`;
     if (t.state === 'failed')
       return <span className="transfer-error">{t.reason}</span>;
+    if (t.edit) {
+      const at = t.edit.uploaded && new Date(t.edit.uploaded);
+      return `open in ${t.edit.app}${at ? ` · uploaded ${pad(at.getHours())}:${pad(at.getMinutes())}` : ''}`;
+    }
     if (t.direction === 'upload') return 'Uploaded';
     return (
       <button className="link" onClick={() => onShow(t.local)}>
@@ -245,10 +258,15 @@ function TransferList({
         {transfers.map((t) => (
           <li key={t.id} className={t.state}>
             <div className="transfer-line">
-              {t.direction === 'upload' ? upArrow : downArrow}
+              {t.edit
+                ? editMark
+                : t.direction === 'upload'
+                  ? upArrow
+                  : downArrow}
               <span className="transfer-name">{t.name}</span>
               <span className="transfer-folder">{t.folder}</span>
-              {unfinished(t) && (
+              {/* An editor-sync row has no cancel: closing the Tab ends it. */}
+              {unfinished(t) && !t.edit && (
                 <button
                   aria-label={`Cancel ${t.name}`}
                   title="Cancel"
@@ -331,7 +349,86 @@ function ConflictDialog({
   );
 }
 
-/** Asks before a Tab closes with transfers still queued or running. Show local copy reveals the first one's file on this computer. */
+/** Asks whether a save of an editor-sync file uploads. Escape answers no: the save stays on this computer. */
+function EditorSaveDialog({
+  question,
+  host,
+  onAnswer,
+}: {
+  question: EditorQuestion;
+  host: string;
+  onAnswer(upload: boolean): void;
+}) {
+  const changed = question.reason === 'changed';
+  const title = changed
+    ? `${question.name} changed on ${host}`
+    : `Upload ${question.name} to ${host}?`;
+  return (
+    <div
+      role="alertdialog"
+      aria-modal="true"
+      aria-label={title}
+      className="sftp-confirm"
+      onKeyDown={(e) => e.key === 'Escape' && onAnswer(false)}
+    >
+      <h3>{title}</h3>
+      {changed && (
+        <p>Someone changed it since you opened it. Overwrite their change?</p>
+      )}
+      <div className="question-actions">
+        <button
+          className={changed ? 'danger' : undefined}
+          onClick={() => onAnswer(true)}
+        >
+          {changed ? 'Overwrite' : 'Upload'}
+        </button>
+        <button autoFocus onClick={() => onAnswer(false)}>
+          {changed ? 'Cancel' : 'Not now'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Lists the editor-sync copies the back end kept at startup. They stay on disk until the user deletes them. */
+export function UnsentEdits({
+  edits,
+  onShow,
+  onClose,
+}: {
+  edits: UnsentEdit[];
+  onShow(file: string): void;
+  onClose(): void;
+}) {
+  return (
+    <Modal label="Unsent edits" className="confirm" onCancel={onClose}>
+      <h2>Unsent edits</h2>
+      <p>
+        These copies have saves that never reached the host. Copy what you need
+        back by hand, then delete them.
+      </p>
+      <ul className="unsent-edits">
+        {edits.map((e) => (
+          <li key={e.file}>
+            <code>
+              {e.alias}:{e.remote}
+            </code>
+            <button className="link" onClick={() => onShow(e.file)}>
+              {e.file}
+            </button>
+          </li>
+        ))}
+      </ul>
+      <footer>
+        <button autoFocus onClick={onClose}>
+          Close
+        </button>
+      </footer>
+    </Modal>
+  );
+}
+
+/** Asks before a Tab closes with transfers still queued or running, or files open in an editor. Show local copy reveals the first one's file on this computer. */
 export function CloseTabConfirm({
   name,
   pending,
@@ -345,7 +442,14 @@ export function CloseTabConfirm({
   onCancel(): void;
   onClose(): void;
 }) {
-  const n = pending.length;
+  const edits = pending.filter((t) => t.edit).length;
+  const transfers = pending.length - edits;
+  const what = [
+    transfers &&
+      `${transfers} ${transfers === 1 ? 'transfer' : 'transfers'} not finished`,
+    edits && `${edits} ${edits === 1 ? 'file' : 'files'} open in an editor`,
+  ].filter(Boolean);
+  const first = pending[0];
   return (
     <Modal
       label="Close Tab"
@@ -354,17 +458,23 @@ export function CloseTabConfirm({
       onCancel={onCancel}
     >
       <h2>
-        Close {name} with {n} {n === 1 ? 'transfer' : 'transfers'} not finished?
+        Close {name} with {what.join(' and ')}?
       </h2>
-      <p>Closing the Tab stops them.</p>
+      {transfers > 0 && <p>Closing the Tab stops the transfers.</p>}
+      {edits > 0 && (
+        <p>
+          Closing the Tab deletes the copies it opened, with any save not
+          uploaded.
+        </p>
+      )}
       <footer>
         {/* An unfinished download may have no file yet: its folder shows instead. */}
         <button
           onClick={() =>
             onShow(
-              pending[0].direction === 'upload'
-                ? pending[0].local
-                : pending[0].folder,
+              first.edit || first.direction === 'upload'
+                ? first.local
+                : first.folder,
             )
           }
         >
@@ -429,6 +539,7 @@ export function SftpPane({
     counts?: Record<string, Counts>;
   }>();
   const [conflict, setConflict] = useState<Conflict>();
+  const [editorQuestion, setEditorQuestion] = useState<EditorQuestion>();
   const [keyChange, setKeyChange] = useState<TransferKeyChange>();
   const [dragging, setDragging] = useState(false);
   const menuRef = useRef<HTMLUListElement>(null);
@@ -448,6 +559,7 @@ export function SftpPane({
       backend.onEvent((event) => {
         if (!('tab' in event) || event.tab !== tab.id) return;
         if (event.type === 'conflict') setConflict(event.conflict);
+        else if (event.type === 'editorSave') setEditorQuestion(event.question);
         else if (event.type === 'transferKey') setKeyChange(event.change);
         else if (event.type === 'connected') {
           setConnected(true);
@@ -517,10 +629,10 @@ export function SftpPane({
   const at = listing?.path ?? '';
 
   const fail = (e: Error) => setError(e.message);
-  const open = (file: RemoteFile) => {
-    // ponytail: a file opens in the editor only from ticket 19 on.
-    if (file.folder) go(join(at, file.name));
-  };
+  const open = (file: RemoteFile) =>
+    file.folder
+      ? go(join(at, file.name))
+      : backend.openInEditor(tab.id, join(at, file.name)).catch(fail);
   const selectAll = () => setSelected(new Set(files.map((f) => f.name)));
 
   const click = (name: string, e: MouseEvent) => {
@@ -637,13 +749,8 @@ export function SftpPane({
   const carriesFiles = (e: DragEvent) =>
     !down && !!listing && [...e.dataTransfer.types].includes('Files');
 
-  // ponytail: the editor belongs to ticket 19, so Open in editor stays disabled.
   const rowMenu = () => [
-    one &&
-      item(
-        one.folder ? 'Open' : 'Open in editor',
-        one.folder ? () => open(one) : undefined,
-      ),
+    one && item(one.folder ? 'Open' : 'Open in editor', () => open(one)),
     item(
       picked.length > 1 ? `Download ${picked.length} items` : 'Download',
       download,
@@ -920,6 +1027,17 @@ export function SftpPane({
               onAnswer={(choice, all) => {
                 setConflict(undefined);
                 backend.answerConflict(tab.id, choice, all);
+              }}
+            />
+          )}
+          {editorQuestion && (
+            <EditorSaveDialog
+              key={editorQuestion.id + editorQuestion.reason}
+              question={editorQuestion}
+              host={hostOf(tab) ?? 'the host'}
+              onAnswer={(upload) => {
+                setEditorQuestion(undefined);
+                backend.answerEditorSave(tab.id, editorQuestion.id, upload);
               }}
             />
           )}

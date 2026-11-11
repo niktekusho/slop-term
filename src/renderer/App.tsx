@@ -23,6 +23,7 @@ import {
   type Shell,
   type TabId,
   type Transfer,
+  type UnsentEdit,
 } from '../shared/ipc.ts';
 import { TerminalView } from './TerminalView.tsx';
 import { ProfilingPanel } from './ProfilingPanel.tsx';
@@ -60,7 +61,13 @@ import {
 import { headerColours, terminalOptions } from './look.ts';
 import { HostKeyPrompt } from './HostKeyPrompt.tsx';
 import { SecretPrompt } from './SecretPrompt.tsx';
-import { CloseTabConfirm, expandIcon, percent, SftpPane } from './SftpPane.tsx';
+import {
+  CloseTabConfirm,
+  expandIcon,
+  percent,
+  SftpPane,
+  UnsentEdits,
+} from './SftpPane.tsx';
 import {
   DeleteSession,
   freeAlias,
@@ -82,7 +89,8 @@ function withQuestion<Q>(questions: Map<TabId, Q>, tab: TabId, question?: Q) {
 const note = (text: string) => `\r\n\x1b[2m${text}\x1b[22m\r\n`;
 const clock = () => new Date().toTimeString().slice(0, 5);
 const clearDoneMs = 3000;
-const pending = (tab?: Tab) => tab?.transfers?.filter(unfinished) ?? [];
+const pending = (tab?: Tab) =>
+  tab?.transfers?.filter((t) => unfinished(t) || t.edit) ?? [];
 
 const darkQuery = () => window.matchMedia('(prefers-color-scheme: dark)');
 const subscribeToOsMode = (onChange: () => void) => {
@@ -126,7 +134,9 @@ export function App({
   const [notice, setNotice] = useState<string>();
   // A Tab whose close waits for the user to confirm its unfinished transfers.
   const [closing, setClosing] = useState<TabId>();
+  const [unsent, setUnsent] = useState<UnsentEdit[]>([]);
   const modal =
+    unsent.length > 0 ||
     !!dialog ||
     !!localDialog ||
     !!deleting ||
@@ -168,6 +178,7 @@ export function App({
     backend.listShells().then(setShells);
     backend.settings().then(setSettings);
     backend.getTree().then(setTree);
+    backend.unsentEdits().then(setUnsent);
   }, [backend]);
 
   useEffect(() => {
@@ -287,8 +298,8 @@ export function App({
                 ? list.map((t) => (t.id === transfer.id ? transfer : t))
                 : [...list, transfer],
           );
-          // A retry can bring a finished id back: only a still finished one clears.
-          if (transfer.state === 'done')
+          // A retry can bring a finished id back: only a still finished one clears. An editor-sync row stays while its Tab is open.
+          if (transfer.state === 'done' && !transfer.edit)
             setTimeout(
               () =>
                 change((list = []) =>
@@ -300,9 +311,11 @@ export function App({
             );
           return;
         }
-        // The SFTP pane shows these. The queue waits on a conflict, so a collapsed pane opens to ask it.
-        if (event.type === 'conflict') {
-          if (!event.conflict) return asking.current.delete(event.tab);
+        // The SFTP pane shows these. The queue waits on a conflict and a save on its question, so a collapsed pane opens to ask.
+        if (event.type === 'conflict' || event.type === 'editorSave') {
+          const question =
+            event.type === 'conflict' ? event.conflict : event.question;
+          if (!question) return asking.current.delete(event.tab);
           asking.current.add(event.tab);
           if (event.tab === activeRef.current) setPaneOpen(true);
           return;
@@ -1122,6 +1135,13 @@ export function App({
             setClosing(undefined);
             removeTab(closingTab.id);
           }}
+        />
+      )}
+      {unsent.length > 0 && (
+        <UnsentEdits
+          edits={unsent}
+          onShow={(file) => backend.showItem(file)}
+          onClose={() => setUnsent([])}
         />
       )}
       {movedIn && (

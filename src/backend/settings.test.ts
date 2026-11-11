@@ -19,6 +19,7 @@ describe('settings', () => {
       theme: 'system',
       fontSize: 12,
       scrollback: 1000,
+      uploadOnSave: true,
       sessionColourTint: 10,
       keepassDatabases: [],
     });
@@ -66,6 +67,7 @@ describe('settings', () => {
         fontFamily: 'Consolas',
         fontSize: 12,
         scrollback: 1000,
+        uploadOnSave: true,
         sessionColourTint: 10,
         keepassDatabases: [],
       }),

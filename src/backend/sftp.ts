@@ -8,6 +8,17 @@ export const call = <T = void>(
     run((err, value) => (err ? reject(err) : resolve(value))),
   );
 
+/** Rejects when the channel closes. A host that closes it mid-copy can leave fastPut's callback uncalled: ssh2 then sends a CLOSE no one answers. */
+export function whenClosed(sftp: SFTPWrapper) {
+  const closed = new Promise<never>((_, reject) =>
+    sftp.once('close', () =>
+      reject(new Error('The host closed the transfer channel.')),
+    ),
+  );
+  closed.catch(() => {});
+  return closed;
+}
+
 export const join = (folder: string, name: string) =>
   `${folder === '/' ? '' : folder}/${name}`;
 
