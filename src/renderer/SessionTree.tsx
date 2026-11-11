@@ -12,6 +12,7 @@ import type {
   Shell,
   TabId,
   Transfer,
+  TypedSsh,
 } from '../shared/ipc.ts';
 import {
   folderProblem,
@@ -39,6 +40,8 @@ export type Tab = {
   useUser?: string;
   /** The transfer queue in order, without cancelled and cleared items. */
   transfers?: Transfer[];
+  /** A local shell Tab's typed `ssh`, or the Saved session its pane browses. */
+  typedSsh?: TypedSsh;
 };
 
 type Folder = {
@@ -48,8 +51,9 @@ type Folder = {
   sessions: string[];
 };
 
-/** The host part of an SSH Tab's `user@host`. */
-export const hostOf = (tab?: Tab) => tab?.address?.split('@').at(-1);
+/** The host part of an SSH Tab's `user@host`, or the host a local shell Tab's pane browses. */
+export const hostOf = (tab?: Tab) =>
+  tab?.address?.split('@').at(-1) ?? tab?.typedSsh?.host;
 
 export const shellLabel = (shell: Shell) =>
   shell.kind === 'wsl' ? `wsl: ${shell.distro}` : shell.kind;
@@ -252,7 +256,12 @@ function TabRow({
         : undefined;
   // A Tab in the Unsaved list leads with its shell or alias and shows no title; a Tab under its host leads with its folder, else its title.
   const [name, ...details] = unsaved
-    ? [tabLabel(tab), folder, tab.exit !== undefined ? title : undefined]
+    ? [
+        tabLabel(tab),
+        tab.typedSsh && `→ ${tab.typedSsh.alias}`,
+        folder,
+        tab.exit !== undefined ? title : undefined,
+      ]
     : folder
       ? [folder, title]
       : [title ?? tabLabel(tab)];

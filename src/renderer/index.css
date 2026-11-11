@@ -527,6 +527,32 @@ body,
   gap: 6px;
 }
 
+/* The SFTP pane's own login card covers the narrower pane, not the terminal. */
+.tab-prompt.pane-prompt {
+  padding: 16px;
+}
+
+.tab-prompt .note {
+  color: var(--fg-muted);
+}
+
+.tab-prompt .problem {
+  color: var(--danger);
+}
+
+.tab-prompt .save-to {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 12px;
+  padding: 0;
+  border: 0;
+}
+
+.tab-prompt .save-to legend {
+  margin-bottom: 4px;
+  padding: 0;
+}
+
 .terminal {
   height: 100%;
 }
@@ -1407,4 +1433,18 @@ body,
 
 .sftp-empty code {
   font-family: 'JetBrains Mono', monospace;
+}
+
+.sftp-empty button,
+.sftp-empty select {
+  margin-top: 4px;
+  padding: 3px 12px;
+  color: var(--fg);
+  background: var(--button);
+  border: 1px solid var(--button-border);
+  border-radius: 6px;
+}
+
+.sftp-empty button:hover {
+  background: var(--button-hover);
 }

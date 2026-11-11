@@ -43,6 +43,8 @@ const hashLimit = 10 * 1024 * 1024;
 const chunkBytes = 32 * 1024;
 // Editors save in several writes, or by writing a temp file and renaming it over the copy.
 const settleMs = 300;
+// One count for every Tab's sync: a local shell Tab has one per host its pane reached, and their rows share one list.
+let nextId = 1;
 
 const sha256 = (data: Buffer) =>
   createHash('sha256').update(data).digest('hex');
@@ -97,7 +99,6 @@ export function createEditorSync(
   // A drop or a close resolves the open question to none.
   let question: { id: string; resolve(upload?: boolean): void } | undefined;
   let online = true;
-  let nextId = 1;
   // One step at a time: a save waits for the download, and two saves upload in order.
   let steps = Promise.resolve();
   const enqueue = (run: () => Promise<void>) => {

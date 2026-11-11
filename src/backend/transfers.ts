@@ -27,6 +27,8 @@ type Answer = { choice: ConflictChoice; all: boolean };
 type Contents = { folders: string[]; files: { path: string; size: number }[] };
 
 const progressMs = 200;
+// One count for every queue: a local shell Tab has a queue per host its pane reached, and their rows share one list.
+let nextId = 1;
 
 const remoteName = (p: string) => p.slice(p.lastIndexOf('/') + 1);
 const localJoin = (base: string, rel: string) =>
@@ -103,7 +105,6 @@ export function createTransfers(
   const batches: Item[][] = [];
   let running = false;
   let answer: ((answer?: Answer) => void) | undefined;
-  let nextId = 1;
 
   const update = (item: Item, patch: Partial<Transfer>) => {
     Object.assign(item.transfer, patch);

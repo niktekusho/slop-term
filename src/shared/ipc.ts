@@ -47,6 +47,8 @@ export type Settings = {
   keepassLastGroup?: KeepassTarget;
   /** Where Download saves; unset means the Downloads folder. */
   downloadFolder?: string;
+  /** The folder the last Saved session created from a typed `ssh` went to, which the next one starts on. */
+  typedSshFolder?: string;
 };
 
 /** `name` defaults to the file name without its extension. */
@@ -266,11 +268,39 @@ export type SecretQuestion = {
   prompts: { prompt: string; echo: boolean }[];
   /** Why the app asks although the session has a Credential reference. */
   reason?: string;
-  /** `new` offers "Save to: keychain / KeePass / don't save"; `same` saves under the session's reference; `update` replaces its saved secret. */
-  save?: 'new' | 'same' | 'update';
-  /** The Saved session's folder, which preselects the KeePass group of a `new` save. */
+  /**
+   * `new` offers "Save to: keychain / KeePass / don't save"; `same` saves under the session's reference; `update` replaces its saved secret.
+   * `create` is a typed `ssh` with no Saved session: saving also creates one, under the alias and folder the answer names.
+   */
+  save?: 'new' | 'same' | 'update' | 'create';
+  /** The Saved session's folder, which preselects the KeePass group of a `new` save. For `create`, the folder the last one went to. */
   folder?: string;
+  /** A typed `ssh` to this Hand-written host: it has to move into slop-term before it can save a secret. */
+  moveIn?: string;
 };
+
+/**
+ * The `ssh` a local shell Tab runs, or a Saved session the user picked to browse. `alias` is the destination as typed; `host`, `user` and `port` are what `ssh -G` resolved.
+ * `session` is the Saved session it matched. `state` is the SFTP pane's own connection: `waiting` until it connects on its own or the user asks.
+ */
+export type TypedSsh = {
+  alias: string;
+  user: string;
+  host: string;
+  port: number;
+  session?: string;
+  /** No `ssh` process: the pane browses a Saved session the user picked. */
+  picked?: true;
+  jumpHost?: true;
+  state: 'waiting' | 'connecting' | 'connected' | 'dropped';
+  /** Why the pane's connection dropped. */
+  reason?: string;
+  /** A line about the last save, as "Not saved: …". */
+  notice?: string;
+};
+
+/** A save that also creates a Saved session for a typed `ssh`. `folder` '' is the top level. */
+export type NewTypedSession = { alias: string; folder: string };
 
 export interface Backend {
   listShells(): Promise<Shell[]>;
@@ -281,12 +311,23 @@ export interface Backend {
   openSsh(alias: string): Promise<TabId>;
   /** `true` trusts an unknown key, or replaces a changed one. */
   answerHostKey(tab: TabId, trust: boolean): Promise<void>;
-  /** One answer per prompt; `null` cancels the login. `save` follows the question's save offer: a group saves a new secret to KeePass, `true` to the keychain. */
+  /**
+   * One answer per prompt; `null` cancels the login. `save` follows the question's save offer: a group saves a new secret to KeePass, `true` to the keychain.
+   * A `create` offer that saves names the Saved session in `create`. A local shell Tab's answer goes to its SFTP pane.
+   */
   answerSecret(
     tab: TabId,
     answers: string[] | null,
     save: boolean | KeepassTarget,
+    create?: NewTypedSession,
   ): Promise<void>;
+  /**
+   * Connects a local shell Tab's SFTP pane now: to the host its typed `ssh` reached, or with `alias` to that SSH Saved session.
+   * A dropped pane reconnects the same way.
+   */
+  browseFiles(tab: TabId, alias?: string): Promise<void>;
+  /** Ends a pane that browses a picked Saved session. */
+  stopBrowsing(tab: TabId): Promise<void>;
   /** Ends the Tab's shell or connection. */
   close(tab: TabId): Promise<void>;
   /** Opens an exited Tab again from where it came from, under the same id. */
@@ -427,6 +468,7 @@ export type ProcessMetrics = {
 
 /**
  * `folder` is the decoded path from OSC 7 and `host` its hostname. `firstHost` is the hostname of the Tab's first OSC 7: a different `host` means the terminal ran `ssh` onward.
+ * In a local shell Tab, `firstHost` is the first OSC 7 since its typed `ssh` started, and '' while none runs: only then does OSC 7 move the pane.
  * `title` comes from OSC 0 or 2; `address` is an SSH Tab's `user@host`.
  */
 export type TabUpdate =
@@ -446,8 +488,11 @@ export type BackendEvent =
    */
   | { type: 'dropped'; tab: TabId; reason: string; final?: true; user?: string }
   /** For both questions, none means the connection closed and the open question is void. */
-  | { type: 'hostKey'; tab: TabId; question?: HostKeyQuestion }
-  | { type: 'secret'; tab: TabId; question?: SecretQuestion }
+  /** `pane` is a question of a local shell Tab's SFTP pane, which the pane shows instead of the terminal. */
+  | { type: 'hostKey'; tab: TabId; question?: HostKeyQuestion; pane?: true }
+  | { type: 'secret'; tab: TabId; question?: SecretQuestion; pane?: true }
+  /** None means the `ssh` exited, or the picked Saved session stopped browsing. */
+  | { type: 'typedSsh'; tab: TabId; ssh?: TypedSsh }
   /** Steps pass in order. The first failure carries its reason and ends the Test. */
   | { type: 'test'; tab: TabId; steps: TestStep[] }
   | { type: 'transfer'; tab: TabId; transfer: Transfer }
@@ -539,6 +584,8 @@ const methods: { [M in keyof Backend]: true } = {
   openInEditor: true,
   answerEditorSave: true,
   unsentEdits: true,
+  browseFiles: true,
+  stopBrowsing: true,
 };
 
 export function serve(backend: Backend, send: (message: Message) => void) {

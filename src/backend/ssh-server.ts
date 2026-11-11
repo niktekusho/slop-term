@@ -113,7 +113,14 @@ export async function startFakeSshServer({
   code,
   password,
   sftp: withSftp = false,
-}: { code?: string; password?: string; sftp?: boolean } = {}) {
+  prompt = '$ ',
+}: {
+  code?: string;
+  password?: string;
+  sftp?: boolean;
+  /** What a new shell writes first, as a remote shell's OSC 7 and prompt. */
+  prompt?: string;
+} = {}) {
   const users: string[] = [];
   const connections = new Set<Connection>();
   const shells = new Set<ServerChannel>();
@@ -219,7 +226,7 @@ export async function startFakeSshServer({
           session.on('shell', (ok) => {
             const shell = ok();
             shells.add(shell);
-            shell.write('$ ');
+            shell.write(prompt);
           });
           if (withSftp) sftp(session);
         });

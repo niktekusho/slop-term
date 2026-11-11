@@ -19,6 +19,8 @@ import type {
   CredentialReference,
   HostKeyQuestion,
   KeepassTarget,
+  NewTypedSession,
+  SecretChange,
   SecretQuestion,
   TabId,
   TerminalSize,
@@ -45,15 +47,20 @@ import {
   removeLine,
   savedKeys,
 } from './known-hosts.ts';
-import { resolve } from './resolver.ts';
+import { resolve, type Resolved } from './resolver.ts';
 import { call, sftpFiles } from './sftp.ts';
 
 export type SshTab = {
   write(data: string): void;
   resize(size: TerminalSize): void;
   answerHostKey(trust: boolean): void;
-  answerSecret(answers: string[] | null, save: boolean | KeepassTarget): void;
-  close(): void;
+  answerSecret(
+    answers: string[] | null,
+    save: boolean | KeepassTarget,
+    create?: NewTypedSession,
+  ): void;
+  /** `finishTransfers` lets running transfers end on the transfer connection, which then closes. */
+  close(finishTransfers?: boolean): void;
   keepalive(): void;
   /** The SFTP pane's files, over a channel on this connection that the first call opens. */
   files(): Promise<SftpFiles>;
@@ -74,6 +81,22 @@ export const notConnected = () => new Error('The Tab is not connected.');
 export type TestPlan = {
   options: string[];
   credential?: CredentialReference;
+};
+
+/**
+ * A local shell Tab's SFTP pane: no shell, for the host a typed `ssh` reached or a picked Saved session. `resolved` is that `ssh -G`.
+ * `session` is the Saved session it matched; `handWritten` a Hand-written host it matched, which can't save a secret.
+ * `folder` starts a `create` save; `create` saves the secret first, then a new Managed Saved session that points at it.
+ */
+export type PanePlan = {
+  resolved: Resolved;
+  session?: string;
+  handWritten?: string;
+  folder?: string;
+  create(
+    answer: NewTypedSession,
+    secret: NonNullable<SecretChange['set']>,
+  ): Promise<void>;
 };
 
 /** What a Tab remembers across its connections. */
@@ -105,7 +128,11 @@ const algorithms: Record<string, string[]> = {
 type Kind = CredentialReference['kind'];
 /** Secrets the user typed, kept in memory for the Tab's lifetime. Provider secrets are never kept. */
 export type Typed = Partial<Record<Kind, string>>;
-type Reply = { answers: string[]; save: boolean | KeepassTarget };
+type Reply = {
+  answers: string[];
+  save: boolean | KeepassTarget;
+  create?: NewTypedSession;
+};
 
 const nullDevice = (file: string) => /^(\/dev\/null|nul)$/i.test(file);
 
@@ -132,6 +159,7 @@ export function openSshTab(
   onClose: () => void,
   memory: TabMemory,
   test?: TestPlan,
+  pane?: PanePlan,
 ): SshTab {
   const { typed } = memory;
   // A Test's checklist. A failure lands on the first step that hasn't passed.
@@ -184,9 +212,31 @@ export function openSshTab(
     );
     transferClient = undefined;
   };
+  // A closed Tab that let its transfers finish ends its connections after the last one.
+  let finishing = false;
   const release = () => {
-    if (--channels === 0 && !closed)
-      idle = setTimeout(endTransfers, transferIdleMs);
+    if (--channels > 0) return;
+    if (finishing) {
+      client.end();
+      endTransfers();
+    } else if (!closed) idle = setTimeout(endTransfers, transferIdleMs);
+  };
+
+  // The server's close reply can lag or never come: ending the channel releases it too, once.
+  const counted = (sftp: SFTPWrapper) => {
+    let released = false;
+    const done = () => {
+      if (released) return;
+      released = true;
+      release();
+    };
+    sftp.on('close', done);
+    const end = sftp.end.bind(sftp);
+    sftp.end = () => {
+      end();
+      done();
+    };
+    return sftp;
   };
 
   const print = (text: string) =>
@@ -195,6 +245,7 @@ export function openSshTab(
   const close = (
     reason?: string,
     extra: { final?: true; user?: string } = {},
+    finishTransfers = false,
   ) => {
     if (closed) return;
     closed = true;
@@ -208,8 +259,12 @@ export function openSshTab(
       reply = undefined;
       emit({ type: 'secret', tab });
     }
-    client.end();
-    endTransfers();
+    // A keyboard-interactive host's transfers run on this connection, so it waits for them too.
+    finishing = finishTransfers && channels > 0;
+    if (!finishing) {
+      client.end();
+      endTransfers();
+    }
     onClose();
     if (reason && test) report(reason);
     else if (reason) emit({ type: 'dropped', tab, reason, ...extra });
@@ -236,11 +291,11 @@ export function openSshTab(
       answer?.(trust);
       answer = undefined;
     },
-    answerSecret(answers, save) {
-      reply?.(answers ? { answers, save } : undefined);
+    answerSecret(answers, save, create) {
+      reply?.(answers ? { answers, save, create } : undefined);
       reply = undefined;
     },
-    close: () => close(),
+    close: (finishTransfers) => close(undefined, {}, finishTransfers),
     keepalive() {
       if (!channel || closed) return;
       const internals = client as unknown as Internals;
@@ -260,11 +315,11 @@ export function openSshTab(
     },
     async transferChannel() {
       if (!ready || closed) throw notConnected();
-      if (memory.interactive) return openSftp(client);
       // Counted before the first await, so a channel closing meanwhile can't start the idle timer.
       channels++;
       clearTimeout(idle);
       try {
+        if (memory.interactive) return counted(await openSftp(client));
         if (!transferClient) {
           const opening = transferLogin!();
           transferClient = opening;
@@ -274,21 +329,7 @@ export function openSshTab(
           };
           opening.then((c) => c.on('close', forget), forget);
         }
-        const sftp = await openSftp(await transferClient);
-        // The server's close reply can lag or never come: ending the channel releases it too, once.
-        let released = false;
-        const done = () => {
-          if (released) return;
-          released = true;
-          release();
-        };
-        sftp.on('close', done);
-        const end = sftp.end.bind(sftp);
-        sftp.end = () => {
-          end();
-          done();
-        };
-        return sftp;
+        return counted(await openSftp(await transferClient));
       } catch (e) {
         release();
         throw e;
@@ -298,17 +339,20 @@ export function openSshTab(
 
   async function connect() {
     // Closing before the first await would call onClose before openSshTab returns the Tab.
-    const r = await resolve(alias, undefined, test?.options).catch((e) => {
-      throw test ? new Error(sshError(e)) : e;
-    });
-    if (!test && !hostExists(alias))
+    const r = await (pane
+      ? Promise.resolve(pane.resolved)
+      : resolve(alias, undefined, test?.options).catch((e) => {
+          throw test ? new Error(sshError(e)) : e;
+        }));
+    if (!test && !pane && !hostExists(alias))
       return close('This Saved session no longer exists.', { final: true });
     if (r.jumpHost) return close(jumpHostMessage, { final: true });
     if (test) {
       where = ` ${r.hostname}:${r.port}`;
       who = ` as ${r.user}`;
       pass();
-    } else emit({ type: 'tab', tab, address: `${r.user}@${r.hostname}` });
+    } else if (!pane)
+      emit({ type: 'tab', tab, address: `${r.user}@${r.hostname}` });
 
     const name = knownHostName(r.hostKeyAlias ?? r.hostname, r.port);
     // `ssh -G` on Windows mixes `\` and `/`; the changed-key warning shows the native path.
@@ -365,11 +409,14 @@ export function openSshTab(
       return trust;
     }
 
-    // Undefined for a Hand-written host and for a Test: neither offers a save.
-    const session = test ? undefined : savedSession(alias);
+    // Undefined for a Hand-written host and for a Test: neither offers a save. A pane has the Saved session it matched.
+    const sessionAlias = pane ? pane.session : test ? undefined : alias;
+    const session = sessionAlias ? savedSession(sessionAlias) : undefined;
     const ref = test ? test.credential : session?.credential;
     const username = r.user;
-    const title = `Password for ${r.user}@${r.hostname}`;
+    const title = pane
+      ? `Log in to ${r.user}@${r.hostname}`
+      : `Password for ${r.user}@${r.hostname}`;
     const offers: Partial<Record<Kind, SecretQuestion['save']>> = {};
     const fromProvider: Partial<Record<Kind, boolean>> = {};
     const account = accountName(r);
@@ -379,6 +426,7 @@ export function openSshTab(
       secret: string;
       name: string;
       to?: KeepassTarget;
+      create?: NewTypedSession;
     };
     let toSave: Save | undefined;
 
@@ -444,7 +492,11 @@ export function openSshTab(
         }
         reason = read.reason;
         if (session) offers[kind] = 'same';
-      } else if (session && !ref) offers[kind] = 'new';
+      } else if (!ref && (!pane || kind === 'password')) {
+        // A pane saves only passwords. A Hand-written host has to move in first.
+        if (session) offers[kind] = 'new';
+        else if (pane && !pane.handWritten) offers[kind] = 'create';
+      }
       fromProvider[kind] = false;
       const got = await askSecret({
         alias,
@@ -459,34 +511,45 @@ export function openSshTab(
         ...(offers[kind] && { save: offers[kind] }),
         ...(offers[kind] === 'new' &&
           session?.folder && { folder: session.folder }),
+        ...(offers[kind] === 'create' &&
+          pane?.folder && { folder: pane.folder }),
+        ...(kind === 'password' &&
+          pane?.handWritten && { moveIn: pane.handWritten }),
       });
       if (!got) return undefined;
       const answer = got.answers[0] ?? '';
       typed[kind] = answer;
+      const fresh = offers[kind] === 'new' || offers[kind] === 'create';
       toSave =
-        got.save && offers[kind]
+        got.save && offers[kind] && (offers[kind] !== 'create' || got.create)
           ? {
               kind,
               secret: answer,
               name,
-              ...(typeof got.save === 'object' &&
-                offers[kind] === 'new' && { to: got.save }),
+              ...(typeof got.save === 'object' && fresh && { to: got.save }),
+              ...(offers[kind] === 'create' && { create: got.create }),
             }
           : undefined;
       return answer;
     }
 
     // The secret goes first: a refusal writes nothing else, and a Sidecar conflict keeps the saved secret.
-    async function saveSecret({ kind, secret, name, to }: Save) {
+    async function saveSecret({ kind, secret, name, to, create }: Save) {
       try {
         let target: CredentialReference;
+        if (create)
+          return await pane!.create(create, {
+            kind,
+            secret,
+            ...(to && { keepass: to }),
+          });
         if (ref?.kind === kind) {
           target = ref;
           await provider(target).write(target, secret);
         } else if (to) {
           target = await providers.keepass.create!(
             to,
-            { title: alias, username, url: `ssh://${r.hostname}` },
+            { title: sessionAlias!, username, url: `ssh://${r.hostname}` },
             kind,
             secret,
           );
@@ -498,7 +561,8 @@ export function openSshTab(
           };
           await provider(target).write(target, secret);
         }
-        if (target !== ref) saveCredential(alias, target, session!.read);
+        if (target !== ref)
+          saveCredential(sessionAlias!, target, session!.read);
       } catch (e) {
         print(`Not saved: ${(e as Error).message}`);
       }
@@ -718,6 +782,7 @@ export function openSshTab(
         if (toSave && rounds <= 1) void saveSecret(toSave);
         else if (toSave)
           print('Not saved: this host asks more than one question to log in.');
+        if (pane) return;
         client.shell({ term: 'xterm-256color', ...size }, (err, stream) => {
           if (err) return close(err.message);
           channel = stream;

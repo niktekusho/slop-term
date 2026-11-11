@@ -176,12 +176,15 @@ export function SaveTo({
   backend,
   folder,
   allowNone,
+  keychainName,
   onChange,
 }: {
   backend: BackendClient;
   /** The Saved session's folder, which preselects the group. */
   folder: string;
   allowNone: boolean;
+  /** Shows the choice as radios: the keychain under this name, one per database, then "Don't save". */
+  keychainName?: string;
   onChange(choice: SaveChoice | undefined): void;
 }) {
   const [to, setTo] = useState<'keychain' | 'keepass' | 'none'>('keychain');
@@ -215,32 +218,63 @@ export function SaveTo({
   const key = JSON.stringify(choice ?? null);
   useEffect(() => onChange(JSON.parse(key) ?? undefined), [key]);
 
+  const radio = (label: string, checked: boolean, pick: () => void) => (
+    <label key={label} className="check">
+      <input type="radio" name="save-to" checked={checked} onChange={pick} />
+      {label}
+    </label>
+  );
+  const pickDatabase = (name: string) => {
+    setPicked(name);
+    setGroup(undefined);
+  };
+
   return (
     <>
-      <label className="field">
-        <span>Save to</span>
-        <select value={to} onChange={(e) => setTo(e.target.value as typeof to)}>
-          <option value="keychain">keychain</option>
-          {databases.length > 0 && <option value="keepass">KeePass</option>}
-          {allowNone && <option value="none">don't save</option>}
-        </select>
-      </label>
+      {keychainName ? (
+        <fieldset className="save-to">
+          <legend>Save to</legend>
+          {radio(keychainName, to === 'keychain', () => setTo('keychain'))}
+          {databases.map((d) =>
+            radio(
+              `KeePass ${d.name}`,
+              to === 'keepass' && database?.name === d.name,
+              () => {
+                setTo('keepass');
+                pickDatabase(d.name);
+              },
+            ),
+          )}
+          {allowNone && radio("Don't save", to === 'none', () => setTo('none'))}
+        </fieldset>
+      ) : (
+        <label className="field">
+          <span>Save to</span>
+          <select
+            value={to}
+            onChange={(e) => setTo(e.target.value as typeof to)}
+          >
+            <option value="keychain">keychain</option>
+            {databases.length > 0 && <option value="keepass">KeePass</option>}
+            {allowNone && <option value="none">don't save</option>}
+          </select>
+        </label>
+      )}
       {to === 'keepass' && database && (
         <>
-          <label className="field">
-            <span>Database</span>
-            <select
-              value={database.name}
-              onChange={(e) => {
-                setPicked(e.target.value);
-                setGroup(undefined);
-              }}
-            >
-              {databases.map((d) => (
-                <option key={d.name}>{d.name}</option>
-              ))}
-            </select>
-          </label>
+          {!keychainName && (
+            <label className="field">
+              <span>Database</span>
+              <select
+                value={database.name}
+                onChange={(e) => pickDatabase(e.target.value)}
+              >
+                {databases.map((d) => (
+                  <option key={d.name}>{d.name}</option>
+                ))}
+              </select>
+            </label>
+          )}
           {database.locked ? (
             <UnlockForm
               key={database.name}

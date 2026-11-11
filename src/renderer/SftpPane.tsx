@@ -16,12 +16,18 @@ import {
   type EditorQuestion,
   type FileCounts as Counts,
   type FileSide,
+  type HostKeyQuestion,
   type Listing,
   type RemoteFile,
+  type SecretQuestion,
+  type SessionTree,
   type Transfer,
   type TransferKeyChange,
+  type TypedSsh,
   type UnsentEdit,
 } from '../shared/ipc.ts';
+import { HostKeyPrompt } from './HostKeyPrompt.tsx';
+import { SecretPrompt } from './SecretPrompt.tsx';
 import { Modal } from './SessionDialog.tsx';
 import { folderIcon, hostOf, icon, type Tab } from './SessionTree.tsx';
 
@@ -491,13 +497,73 @@ export function CloseTabConfirm({
   );
 }
 
+/** A local shell Tab's pane before it browses: the hint with no `ssh`, else where its own connection stands, and the picker in both. */
+function LocalHint({
+  ssh,
+  wsl,
+  tree,
+  onBrowse,
+}: {
+  ssh?: TypedSsh;
+  wsl: boolean;
+  tree: SessionTree;
+  onBrowse(alias?: string): void;
+}) {
+  const hosts = [
+    ...tree.sessions.map((s) => s.alias),
+    ...tree.handWritten,
+  ].toSorted((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  const where = ssh && `${ssh.user}@${ssh.host}`;
+  return (
+    <div className="sftp-empty">
+      {!ssh ? (
+        <>
+          <p>No remote host</p>
+          {wsl ? (
+            <p>The pane can&apos;t see ssh inside WSL.</p>
+          ) : (
+            <p>
+              Type <code>ssh &lt;host&gt;</code> in the terminal to browse its
+              files here.
+            </p>
+          )}
+        </>
+      ) : ssh.jumpHost ? (
+        <p>
+          This host uses a jump host. slop-term v1 can&apos;t connect to it.
+        </p>
+      ) : ssh.state === 'connecting' ? (
+        <p role="status">Connecting to {where}…</p>
+      ) : (
+        <p>
+          <button onClick={() => onBrowse()}>Browse files on {where}</button>
+        </p>
+      )}
+      {/* Every local shell Tab keeps the picker, for an `ssh` the pane can't follow. */}
+      <select
+        aria-label="Browse files of..."
+        value=""
+        onChange={(e) => e.target.value && onBrowse(e.target.value)}
+      >
+        <option value="">Browse files of...</option>
+        {hosts.map((alias) => (
+          <option key={alias}>{alias}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 /**
  * The SFTP pane of one Tab. It stays mounted while hidden, so its folder and selection survive a switch of Tabs.
  * It lists only while `shown` and connected: the first listing opens the back end's SFTP channel.
+ * A local shell Tab's pane browses over its own connection, for a typed `ssh` or a picked Saved session. `wsl` Tabs can only pick.
  */
 export function SftpPane({
   backend,
   tab,
+  tree,
+  wsl,
   shown,
   mac,
   theme,
@@ -505,6 +571,8 @@ export function SftpPane({
 }: {
   backend: BackendClient;
   tab: Tab;
+  tree: SessionTree;
+  wsl: boolean;
   shown: boolean;
   mac: boolean;
   theme: ITheme;
@@ -542,6 +610,9 @@ export function SftpPane({
   const [editorQuestion, setEditorQuestion] = useState<EditorQuestion>();
   const [keyChange, setKeyChange] = useState<TransferKeyChange>();
   const [dragging, setDragging] = useState(false);
+  // A local shell Tab's pane asks its own questions.
+  const [paneKey, setPaneKey] = useState<HostKeyQuestion>();
+  const [paneSecret, setPaneSecret] = useState<SecretQuestion>();
   const menuRef = useRef<HTMLUListElement>(null);
   const grid = useRef<HTMLTableElement>(null);
   // A later request wins, so a slow listing can't replace a newer one.
@@ -549,7 +620,11 @@ export function SftpPane({
   const lastPath = useRef<string>(undefined);
 
   const away = !!tab.host && tab.host !== tab.firstHost;
-  const down = !!tab.disconnected || tab.exit !== undefined;
+  const typed = tab.typedSsh;
+  const paneDropped = typed?.state === 'dropped';
+  const down = !!tab.disconnected || tab.exit !== undefined || paneDropped;
+  // A dropped pane keeps its listing greyed and its transfer rows, as a dropped Tab's pane does.
+  const browsing = !tab.local || typed?.state === 'connected' || paneDropped;
   const go = (path?: string) => setPending({ path });
   // After an action, a folder the user went to meanwhile wins over the one the action ran in.
   const refresh = () => setPending((p) => p ?? { path: lastPath.current });
@@ -558,7 +633,10 @@ export function SftpPane({
     () =>
       backend.onEvent((event) => {
         if (!('tab' in event) || event.tab !== tab.id) return;
-        if (event.type === 'conflict') setConflict(event.conflict);
+        if (event.type === 'hostKey' && event.pane) setPaneKey(event.question);
+        else if (event.type === 'secret' && event.pane)
+          setPaneSecret(event.question);
+        else if (event.type === 'conflict') setConflict(event.conflict);
         else if (event.type === 'editorSave') setEditorQuestion(event.question);
         else if (event.type === 'transferKey') setKeyChange(event.change);
         else if (event.type === 'connected') {
@@ -579,6 +657,21 @@ export function SftpPane({
       }),
     [backend, tab.id, follow],
   );
+
+  // A local shell Tab's pane connects and drops with its typed `ssh`, not with the Tab. A new `ssh` starts from its home folder.
+  const typedState = typed?.state;
+  useEffect(() => {
+    if (!tab.local) return;
+    setConnected(typedState === 'connected');
+    if (typedState === 'connected') refresh();
+    else if (!typedState) {
+      setListing(undefined);
+      setPending(undefined);
+      setSelected(new Set());
+      setError(undefined);
+      lastPath.current = undefined;
+    }
+  }, [tab.local, typedState]);
 
   useEffect(() => {
     if (!shown || !connected || !pending) return;
@@ -629,6 +722,8 @@ export function SftpPane({
   const at = listing?.path ?? '';
 
   const fail = (e: Error) => setError(e.message);
+  const browse = (alias?: string) =>
+    backend.browseFiles(tab.id, alias).catch(fail);
   const open = (file: RemoteFile) =>
     file.folder
       ? go(join(at, file.name))
@@ -783,7 +878,7 @@ export function SftpPane({
   return (
     <div className="sftp-pane" hidden={!shown}>
       <div className="sftp-toolbar">
-        {!tab.local && (
+        {browsing && (
           <>
             <button
               aria-label="Up"
@@ -822,6 +917,11 @@ export function SftpPane({
             >
               {hiddenIcon}
             </button>
+            {typed?.picked && (
+              <button onClick={() => backend.stopBrowsing(tab.id)}>
+                Stop browsing
+              </button>
+            )}
           </>
         )}
         <button
@@ -834,17 +934,20 @@ export function SftpPane({
           {collapseIcon}
         </button>
       </div>
-      {tab.local ? (
-        <div className="sftp-empty">
-          <p>No remote host</p>
-          <p>
-            Type <code>ssh &lt;host&gt;</code> in the terminal to browse its
-            files here.
-          </p>
-        </div>
+      {typed?.notice && (
+        <p role="status" className="sftp-banner warn">
+          {typed.notice}
+        </p>
+      )}
+      {!browsing ? (
+        <LocalHint ssh={typed} wsl={wsl} tree={tree} onBrowse={browse} />
       ) : (
         <>
-          {down ? (
+          {paneDropped ? (
+            <div role="status" className="sftp-banner danger">
+              {typed.reason} <button onClick={() => browse()}>Reconnect</button>
+            </div>
+          ) : down ? (
             <p role="status" className="sftp-banner danger">
               Disconnected. Reconnect the Tab to browse again.
             </p>
@@ -1058,6 +1161,37 @@ export function SftpPane({
             />
           )}
         </>
+      )}
+      {!browsing && error && (
+        <p role="alert" className="sftp-error">
+          {error}
+        </p>
+      )}
+      {paneKey && (
+        <HostKeyPrompt
+          question={paneKey}
+          onAnswer={(trust) => {
+            setPaneKey(undefined);
+            backend.answerHostKey(tab.id, trust);
+          }}
+        />
+      )}
+      {paneSecret && typed && (
+        <SecretPrompt
+          key={paneSecret.title + (paneSecret.reason ?? '')}
+          backend={backend}
+          question={paneSecret}
+          pane={{
+            tree,
+            host: typed.alias,
+            user: typed.user,
+            keychain: mac ? 'macOS Keychain' : 'Windows Credential Manager',
+          }}
+          onAnswer={(answers, save, create) => {
+            setPaneSecret(undefined);
+            backend.answerSecret(tab.id, answers, save, create);
+          }}
+        />
       )}
     </div>
   );

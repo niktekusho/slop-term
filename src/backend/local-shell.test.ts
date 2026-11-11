@@ -45,7 +45,7 @@ describe('local shells', () => {
     await eventually(() => expect(harness.output(tab)).toContain(harness.home));
   });
 
-  it('reports the OSC 7 folder and the title as Tab updates', async () => {
+  it('reports the OSC 7 folder and the title as Tab updates, with no pane host while no ssh runs', async () => {
     const tab = await openFirstShell();
     await harness.backend.write(
       tab,
@@ -58,7 +58,7 @@ describe('local shells', () => {
     await eventually(() =>
       expect(harness.events).toEqual(
         expect.arrayContaining([
-          { type: 'tab', tab, folder, host: 'h', firstHost: 'h' },
+          { type: 'tab', tab, folder, host: 'h', firstHost: '' },
           { type: 'tab', tab, title: 'slop-title' },
         ]),
       ),

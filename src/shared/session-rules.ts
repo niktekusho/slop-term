@@ -78,6 +78,19 @@ export function aliasProblem(alias: string, taken: string[]) {
   return undefined;
 }
 
+/** Lowercase, with each run of spaces or characters an alias can't hold as one `-`. */
+const slugify = (text: string) =>
+  text
+    .toLowerCase()
+    .replace(/[\s*?!,]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+/** The alias a Saved session for a typed `ssh` starts with: the typed host, or `<user>-<host>` when that is taken. */
+export function typedAlias(host: string, user: string, taken: string[]) {
+  const plain = slugify(host);
+  return aliasProblem(plain, taken) ? slugify(`${user}-${host}`) : plain;
+}
+
 /** The folder name rules the inline edit shows and the back end checks. `siblings` leaves out the folder's own name. */
 export function folderProblem(name: string, siblings: string[]) {
   const trimmed = name.trim();

@@ -321,7 +321,11 @@ export function App({
           return;
         }
         if (event.type === 'transferKey') return;
+        if (event.type === 'typedSsh')
+          return updateTab(event.tab, { typedSsh: event.ssh });
         if (event.type === 'hostKey' || event.type === 'secret') {
+          // A local shell Tab's pane asks inside the pane.
+          if (event.pane) return;
           // A Tab that "Reconnect all" started in the background comes forward to ask.
           if (event.question && settled.current.has(event.tab))
             setActive(event.tab);
@@ -739,12 +743,20 @@ export function App({
   }, [treeMenu]);
 
   const activeTab = tabs.find((t) => t.id === active);
-  // A Hand-written host and an unsaved shell have no colour.
+  // A Hand-written host and an unsaved shell have no colour. A local shell running a typed `ssh` takes the colour of the session it matched.
+  const sessionColour = (alias?: string) =>
+    tree.sessions.find((s) => s.alias === alias)?.colour;
   const colourOf = (tab?: Tab) =>
-    typeof tab?.source === 'string'
-      ? (tree.sessions.find((s) => s.alias === tab.source)?.colour ??
-        localOf(tab.source)?.colour)
-      : undefined;
+    (tab?.typedSsh?.picked
+      ? undefined
+      : sessionColour(tab?.typedSsh?.session)) ??
+    (typeof tab?.source === 'string'
+      ? (sessionColour(tab.source) ?? localOf(tab.source)?.colour)
+      : undefined);
+  const wsl = (tab: Tab) =>
+    (typeof tab.source === 'string'
+      ? localOf(tab.source)?.kind
+      : tab.source.kind) === 'wsl';
   const activeColour = colourOf(activeTab);
   const uploading = activeTab?.transfers?.find(
     (t) => t.direction === 'upload' && t.state === 'running',
@@ -1025,6 +1037,8 @@ export function App({
             key={tab.id}
             backend={backend}
             tab={tab}
+            tree={tree}
+            wsl={wsl(tab)}
             shown={paneOpen && tab.id === active}
             mac={mac}
             theme={optionsFor(colourOf(tab)).theme!}

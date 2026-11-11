@@ -430,6 +430,14 @@ export class FakeBackend implements BackendClient {
     this.requests.push({ method: 'answerEditorSave', args });
   }
 
+  async browseFiles(...args: Parameters<Backend['browseFiles']>) {
+    this.requests.push({ method: 'browseFiles', args });
+  }
+
+  async stopBrowsing(...args: Parameters<Backend['stopBrowsing']>) {
+    this.requests.push({ method: 'stopBrowsing', args });
+  }
+
   async unsentEdits() {
     this.requests.push({ method: 'unsentEdits', args: [] });
     return this.unsent;

@@ -24,10 +24,13 @@ const emit = (event: BackendEvent) => send({ event });
 const dataDir = process.argv.at(-1)!;
 
 const settings = createSettings(dataDir, emit);
+// The store tells the sessions about renames; the sessions save the Saved sessions a typed `ssh` creates through the store.
+const store = createConfigStore(emit, (from, to) => renamed(from, to));
 const { renamed, ...sessions } = createSessions(
   emit,
   settings,
   path.join(dataDir, 'editor-sync'),
+  store,
 );
 const { provider: tpm, ...tpmMethods } = createTpm(settings.settings);
 providers.tpm = tpm;
@@ -40,7 +43,7 @@ const handle = serve(
   {
     ...sessions,
     ...settings,
-    ...createConfigStore(emit, renamed),
+    ...store,
     ...tpmMethods,
     ...keepassMethods,
   },

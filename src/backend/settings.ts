@@ -103,6 +103,9 @@ function parse(raw: Record<string, unknown>): Settings {
     settings.keepassLastGroup = { database: last.database, group: last.group };
   if (typeof raw.downloadFolder === 'string' && raw.downloadFolder.trim())
     settings.downloadFolder = raw.downloadFolder.trim();
+  // '' is a folder too: the top level.
+  if (typeof raw.typedSshFolder === 'string')
+    settings.typedSshFolder = raw.typedSshFolder;
   return settings;
 }
 

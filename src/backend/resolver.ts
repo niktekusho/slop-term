@@ -3,7 +3,7 @@ import { homedir, userInfo } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
-export type Resolved = Awaited<ReturnType<typeof resolve>>;
+export type Resolved = Awaited<ReturnType<typeof resolveWith>>;
 
 const expandTilde = (file: string) =>
   file.startsWith('~') ? path.join(homedir(), file.slice(1)) : file;
@@ -20,13 +20,21 @@ export async function resolve(
     : path.join(homedir(), '.ssh', 'config'),
   options: string[] = [],
 ) {
-  const { stdout } = await promisify(execFile)('ssh', [
+  return resolveWith('ssh', [
     ...(config ? ['-F', config] : []),
     ...options.flatMap((option) => ['-o', option]),
     '-G',
     '--',
     alias,
   ]);
+}
+
+/** Runs `ssh -G` with what a typed `ssh` ran: its executable and its arguments, so the result is what that `ssh` reached. */
+export const resolveTyped = (file: string, args: string[]) =>
+  resolveWith(file, ['-G', ...args]);
+
+async function resolveWith(file: string, args: string[]) {
+  const { stdout } = await promisify(execFile)(file, args);
   const values = new Map<string, string[]>();
   for (const line of stdout.split(/\r?\n/)) {
     const space = line.indexOf(' ');
