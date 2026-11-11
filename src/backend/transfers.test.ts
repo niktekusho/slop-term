@@ -178,6 +178,15 @@ describe('SFTP transfers against an in-process server', () => {
     expect(fake.files.get('/up/up.txt')?.toString()).toBe('payload');
   });
 
+  it('fails a running transfer when the host closes its SFTP channel', async () => {
+    const { tab, file } = await open();
+    fake.hold();
+    await harness.backend.upload(tab, [file], '/up');
+    await eventually(() => expect(fake.waiting()).toBe(1));
+    fake.closeSftp();
+    await eventually(() => expect(last(tab)?.transfer.state).toBe('failed'));
+  });
+
   it('asks again on a retry of a transfer whose conflict question a drop voided', async () => {
     const { tab, file } = await open();
     await harness.backend.upload(tab, [file], '/up');

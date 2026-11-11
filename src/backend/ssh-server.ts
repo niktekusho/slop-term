@@ -11,6 +11,7 @@ import {
   type ParsedKey,
   type ServerChannel,
   type Session,
+  type SFTPWrapper,
 } from 'ssh2';
 
 const run = async (...args: string[]) =>
@@ -123,9 +124,12 @@ export async function startFakeSshServer({
   // Writes wait while held, so a transfer stays running.
   let held: Promise<void> = Promise.resolve();
   let release = () => {};
+  let waiting = 0;
+  const sftps = new Set<SFTPWrapper>();
   const sftp = (session: Session) =>
     session.on('sftp', (accept) => {
       const s = accept();
+      sftps.add(s);
       const handles = new Map<number, string>();
       let next = 0;
       const { OK, NO_SUCH_FILE } = utils.sftp.STATUS_CODE;
@@ -136,7 +140,9 @@ export async function startFakeSshServer({
       })
         .on('WRITE', (id, handle, offset, data) => {
           const path = handles.get(handle[0])!;
+          waiting++;
           held.then(() => {
+            waiting--;
             const old = files.get(path)!;
             const grown = Buffer.alloc(
               Math.max(old.length, offset + data.length),
@@ -235,6 +241,10 @@ export async function startFakeSshServer({
       held = new Promise((resolve) => (release = resolve));
     },
     release: () => release(),
+    /** SFTP writes the hold keeps waiting. */
+    waiting: () => waiting,
+    /** Closes each SFTP channel and keeps the connection. */
+    closeSftp: () => sftps.forEach((s) => s.end()),
     // close() waits for open connections, so it ends them first.
     stop: () =>
       new Promise((resolve) => {

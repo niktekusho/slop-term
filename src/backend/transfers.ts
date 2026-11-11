@@ -206,6 +206,13 @@ export function createTransfers(
       sftp = await channel();
       const open = sftp;
       item.abort = () => open.end();
+      // A host that closes the channel mid-copy can leave fastPut's callback uncalled: ssh2 then sends a CLOSE no one answers.
+      const closed = new Promise<never>((_, reject) =>
+        open.once('close', () =>
+          reject(new Error('The host closed the transfer channel.')),
+        ),
+      );
+      closed.catch(() => {});
       if (item.transfer.state !== 'running') return;
       const { folders, files } = await (upload
         ? localContents(item.from)
@@ -229,21 +236,24 @@ export function createTransfers(
           shown = Date.now();
           update(item, { bytes: done + sent, speed: speed(done + sent) });
         };
-        await call((cb) =>
-          upload
-            ? open.fastPut(
-                localJoin(item.from, file.path),
-                remoteJoin(item.to, file.path),
-                { step },
-                cb,
-              )
-            : open.fastGet(
-                remoteJoin(item.from, file.path),
-                localJoin(item.to, file.path),
-                { step },
-                cb,
-              ),
-        );
+        await Promise.race([
+          closed,
+          call((cb) =>
+            upload
+              ? open.fastPut(
+                  localJoin(item.from, file.path),
+                  remoteJoin(item.to, file.path),
+                  { step },
+                  cb,
+                )
+              : open.fastGet(
+                  remoteJoin(item.from, file.path),
+                  localJoin(item.to, file.path),
+                  { step },
+                  cb,
+                ),
+          ),
+        ]);
         done += file.size;
       }
       update(item, { state: 'done', bytes: done, speed: speed(done) });
