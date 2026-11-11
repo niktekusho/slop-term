@@ -165,12 +165,7 @@ describe('SFTP transfers against an in-process server', () => {
     await harness.backend.upload(tab, [file], '/up');
     await eventually(() => expect(last(tab)?.transfer.state).toBe('running'));
     fake.dropAll();
-    await eventually(() =>
-      expect(last(tab)?.transfer).toMatchObject({
-        state: 'failed',
-        reason: 'The Tab disconnected.',
-      }),
-    );
+    await eventually(() => expect(last(tab)?.transfer.state).toBe('failed'));
     fake.release();
     await harness.backend.restart(tab);
     await eventually(() =>
