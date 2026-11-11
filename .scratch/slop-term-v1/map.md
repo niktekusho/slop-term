@@ -50,6 +50,11 @@ Reached: [Spec: slop-term v1](spec.md).
 
 ## Not yet specified
 
+## Ideas to explore
+
+- [Database GUI manager like DBeaver](issues/28-database-gui-manager.md): a grilling issue for after v1.
+- [What would a Rust version of slop-term take?](issues/29-rewrite-in-rust.md): a research issue. Today's Rust rewrite line under Out of scope stays until it is answered.
+
 ## Out of scope
 
 - SSH tunnels / port forwarding: dropped until the user needs them.
