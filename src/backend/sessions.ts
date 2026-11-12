@@ -346,15 +346,24 @@ export function createSessions(
     if (panes.get(tab)?.pid !== undefined) return;
     checks.add(tab);
     early.delete(tab);
+    const t0 = Date.now();
+    console.log(`[DEBUG-w7k3] enter tab=${tab} shell=${live.shell!.pid()}`);
     setTimeout(() => {
       findSsh(live.shell!.pid())
+        .then((found) => {
+          console.log(`[DEBUG-w7k3] first check after ${Date.now() - t0}ms found=${JSON.stringify(found)}`);
+          if (!found)
+            for (const ms of [2000, 5000, 10000])
+              setTimeout(() => findSsh(live.shell!.pid()).then((f) => console.log(`[DEBUG-w7k3] probe +${ms}ms found=${JSON.stringify(f)}`), (e) => console.log(`[DEBUG-w7k3] probe error ${e}`)), ms);
+          return found;
+        })
         .then((found) =>
           found && tabs.get(tab) === live && panes.get(tab)?.pid === undefined
             ? typedSsh(tab, found)
             : undefined,
         )
         // ponytail: an `ssh` whose arguments `ssh -G` rejects gets no pane.
-        .catch(() => {})
+        .catch((e) => console.log(`[DEBUG-w7k3] check error ${e}`))
         .finally(() => checks.delete(tab));
     }, detectDelayMs);
   }
