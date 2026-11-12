@@ -619,7 +619,11 @@ export function openSshTab(
         let failure: Error | undefined;
         const conn = new Client();
         conn
-          .on('ready', () => resolve(conn))
+          .on('ready', () => {
+            // With Nagle on, Linux holds the last small packet of each SFTP request for a delayed ACK: 40 ms or more per request.
+            conn.setNoDelay(true);
+            resolve(conn);
+          })
           .on('error', (e: Error & { level?: string }) => {
             if (e.level === 'agent') return;
             // The host key list holds only the accepted key's type, so a host without that type fails the handshake.
@@ -767,6 +771,8 @@ export function openSshTab(
       })
       .on('connect', pass)
       .on('ready', () => {
+        // With Nagle on, Linux holds each SFTP request on this connection for a delayed ACK, as on the transfer connection.
+        client.setNoDelay(true);
         if (test) {
           pass();
           return client.sftp((err) => {

@@ -7,6 +7,7 @@ import {
   AgentProtocol,
   Server,
   utils,
+  type Client,
   type Connection,
   type ParsedKey,
   type ServerChannel,
@@ -204,6 +205,9 @@ export async function startFakeSshServer({
   function onConnection(conn: Connection) {
     opened++;
     connections.add(conn);
+    // With Nagle on, Linux holds each SFTP reply for a delayed ACK: 40 ms or more. sshd sets TCP_NODELAY on every connection it accepts.
+    // @types/ssh2 leaves out the server Connection's setNoDelay.
+    (conn as Connection & Pick<Client, 'setNoDelay'>).setNoDelay(true);
     conn
       .on('authentication', (ctx) => {
         users.push(ctx.username);

@@ -20,8 +20,9 @@ describe('editor sync against an in-process server', () => {
   async function open(
     files: Record<string, string | Buffer> = {},
     settings = {},
+    server: Parameters<typeof startFakeSshServer>[0] = {},
   ) {
-    fake = await startFakeSshServer({ sftp: true });
+    fake = await startFakeSshServer({ ...server, sftp: true });
     for (const [name, data] of Object.entries(files))
       fake.files.set(name, Buffer.from(data));
     harness = await startBackend({ '.ssh/id_test': testKey.private });
@@ -62,6 +63,14 @@ describe('editor sync against an in-process server', () => {
       expect((await harness.backend.settings()).editor).toBe(editor),
     );
     const tab = await harness.backend.openSsh('box');
+    if (server.code) {
+      await eventually(() =>
+        expect(harness.events).toContainEqual(
+          expect.objectContaining({ type: 'secret', tab }),
+        ),
+      );
+      await harness.backend.answerSecret(tab, [server.code], false);
+    }
     await eventually(() => expect(harness.output(tab)).toContain('$ '));
     /** The local copy the editor was given. */
     const copy = async () => {
@@ -172,6 +181,25 @@ describe('editor sync against an in-process server', () => {
     expect(fake.files.get('/srv/big.log')?.[0]).toBe('c'.charCodeAt(0));
   });
 
+  it('uploads a save over 10 MB on the Tab connection of a host that asked keyboard-interactive questions', async () => {
+    const big = Buffer.alloc(10 * 1024 * 1024 + 1, 'a');
+    const { tab, copy } = await open(
+      { '/srv/big.log': big },
+      {},
+      { code: '424242' },
+    );
+    await harness.backend.openInEditor(tab, '/srv/big.log');
+    const file = await copy();
+    await eventually(() => expect(row(tab)?.transfer.state).toBe('done'));
+
+    await writeFile(file, Buffer.alloc(big.length, 'c'));
+    await eventually(() =>
+      expect(row(tab)?.transfer.edit?.uploaded).toBeGreaterThan(0),
+    );
+    expect(fake.files.get('/srv/big.log')?.at(-1)).toBe('c'.charCodeAt(0));
+    expect(fake.opened()).toBe(1);
+  });
+
   it('asks on each save with upload on save off', async () => {
     const { tab, copy } = await open(
       { '/srv/app.conf': 'port 80' },
@@ -243,7 +271,7 @@ describe('editor sync against an in-process server', () => {
     await eventually(() =>
       expect(fake.files.get('/srv/app.conf')?.toString()).toBe('port 8080'),
     );
-    expect(row(tab)?.transfer.state).toBe('done');
+    await eventually(() => expect(row(tab)?.transfer.state).toBe('done'));
   });
 
   it('deletes the temp copies when the Tab closes', async () => {
