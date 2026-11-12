@@ -1,2 +1,5 @@
 #!/bin/sh
-pnpm lint && pnpm typecheck
+# Runs the tests of the staged source files and of the files that import them.
+staged=$(git diff --cached --name-only --diff-filter=d -- 'src/*.ts' 'src/*.tsx')
+pnpm lint && pnpm typecheck || exit 1
+[ -z "$staged" ] || pnpm vitest related --run $staged

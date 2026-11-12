@@ -25,11 +25,13 @@ describe('editor sync against an in-process server', () => {
     fake = await startFakeSshServer({ ...server, sftp: true });
     for (const [name, data] of Object.entries(files))
       fake.files.set(name, Buffer.from(data));
-    harness = await startBackend({ '.ssh/id_test': testKey.private });
-    const editor = path.join(
-      harness.home,
-      process.platform === 'win32' ? 'edit.cmd' : 'edit.sh',
-    );
+    const editorIn = (home: string) =>
+      path.join(home, process.platform === 'win32' ? 'edit.cmd' : 'edit.sh');
+    harness = await startBackend((home) => ({
+      '.ssh/id_test': testKey.private,
+      'settings.json': JSON.stringify({ editor: editorIn(home), ...settings }),
+    }));
+    const editor = editorIn(harness.home);
     const opened = path.join(harness.home, 'opened.txt');
     await writeFile(
       editor,
@@ -38,8 +40,6 @@ describe('editor sync against an in-process server', () => {
         : `#!/bin/sh\necho "$1" > "${opened}"\n`,
       { mode: 0o755 },
     );
-    // A file written right after the start can miss the settings watcher: on macOS its FSEvents stream starts later.
-    await harness.backend.updateSettings({ editor, ...settings });
     await writeFile(
       path.join(harness.home, '.ssh', 'slop-term.conf'),
       [

@@ -90,17 +90,21 @@ export async function writeBox(
   await writeFile(ssh('config'), includeManaged(home));
 }
 
+type Files = Record<string, string | Buffer>;
+
 /**
  * Vitest's Node and Electron's Node have different V8 serialization versions:
  * messages cross as JSON. Starts the back end in Electron's own Node runtime
  * with a temp home folder seeded with `files` and drives it only through IPC messages. The home folder is also its app data folder.
+ * `files` can be built from the home folder, for contents that name a path in it.
  */
 export async function startBackend(
-  files: Record<string, string> = {},
+  files: Files | ((home: string) => Files) = {},
   env: Record<string, string> = {},
 ) {
   const home = await realpath(await mkdtemp(path.join(tmpdir(), 'slop-home-')));
-  for (const [name, text] of Object.entries(files)) {
+  const seed = typeof files === 'function' ? files(home) : files;
+  for (const [name, text] of Object.entries(seed)) {
     await mkdir(path.dirname(path.join(home, name)), { recursive: true });
     await writeFile(path.join(home, name), text);
   }
@@ -161,10 +165,15 @@ export async function startBackend(
       await kill();
       ({ child, backend } = await launch());
     },
+    /** What the Tab printed, as text: shells put escape sequences around it, such as zsh's `\e[K\e[?2004h` after its prompt. */
     output: (tab: TabId) =>
       events
         .flatMap((e) => (e.type === 'output' && e.tab === tab ? e.data : []))
-        .join(''),
+        .join('')
+        .replace(
+          /\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g,
+          '',
+        ),
     /** The secret questions the Tab (or Test) asked so far. */
     asked: (tab: TabId) =>
       events.flatMap((e) =>

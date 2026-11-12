@@ -6,8 +6,7 @@ import { eventually, startBackend } from './harness.ts';
 let harness: Awaited<ReturnType<typeof startBackend>>;
 afterEach(() => harness.stop());
 
-// A file written right after the start can miss the settings watcher: on macOS its FSEvents stream starts later.
-// So settings a test reads are in place before the start.
+// Settings a test reads are in place before the start: the spec's Testing Decisions say why.
 async function start(settings?: object) {
   harness = await startBackend(
     settings ? { 'settings.json': JSON.stringify(settings) } : {},

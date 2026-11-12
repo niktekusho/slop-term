@@ -79,14 +79,13 @@ afterEach(() => harness.stop());
 /** Starts a back end whose `settings.json` lists the database file `work.kdbx` in its home folder. */
 async function start(fixture: Fixture = {}) {
   const { bytes, ids } = await database(fixture);
-  harness = await startBackend();
-  const file = path.join(harness.home, 'work.kdbx');
-  await writeFile(file, bytes);
-  // A file written right after the start can miss the settings watcher: on macOS its FSEvents stream starts later.
-  await harness.backend.updateSettings({
-    keepassDatabases: [{ name: 'work', path: file }],
-  });
-  return { file, ids };
+  harness = await startBackend((home) => ({
+    'work.kdbx': bytes,
+    'settings.json': JSON.stringify({
+      keepassDatabases: [{ path: path.join(home, 'work.kdbx') }],
+    }),
+  }));
+  return { file: path.join(harness.home, 'work.kdbx'), ids };
 }
 
 describe('unlocking and searching', () => {
