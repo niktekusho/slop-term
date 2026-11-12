@@ -839,7 +839,7 @@ export function App({
               New
             </button>
             {newMenuOpen && (
-              <ul role="menu" className="menu">
+              <ul role="menu" className="menu menu-start">
                 <li role="none">
                   <button
                     role="menuitem"

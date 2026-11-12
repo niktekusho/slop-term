@@ -55,6 +55,17 @@ const press = async (user: User, name: string, key: string) => {
   await user.keyboard(key);
 };
 
+describe('the New menu', () => {
+  it('opens anchored to the left edge of the toolbar so it stays inside the window, unlike the New local shell menu', async () => {
+    const { user } = await setup();
+    await user.click(screen.getByRole('button', { name: 'New' }));
+    expect(screen.getByRole('menu')).toHaveClass('menu-start');
+    await user.click(screen.getByRole('button', { name: 'New' }));
+    await user.click(screen.getByRole('button', { name: 'New local shell' }));
+    expect(screen.getByRole('menu')).not.toHaveClass('menu-start');
+  });
+});
+
 describe('New folder and Rename', () => {
   it("creates a folder inline in the selected row's folder from New", async () => {
     const { backend, user } = await setup();

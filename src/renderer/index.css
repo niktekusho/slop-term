@@ -117,6 +117,20 @@ body,
   padding: 4px 0;
 }
 
+/* The New button sits 100px into a 260px sidebar: anchored to it, a 160px menu clips on either side. */
+.tree-actions {
+  position: relative;
+}
+
+.new:has(> .menu-start) {
+  position: static;
+}
+
+.menu-start {
+  left: 8px;
+  right: auto;
+}
+
 .menu button {
   display: block;
   width: 100%;
