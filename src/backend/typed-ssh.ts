@@ -40,14 +40,12 @@ function splitCommandLine(line: string) {
  */
 export async function findSsh(shell: number): Promise<SshProcess | undefined> {
   if (process.platform === 'win32') {
-    const t0 = Date.now();
     const json = await run('powershell.exe', [
       '-NoProfile',
       '-NonInteractive',
       '-Command',
       `$p = Get-CimInstance Win32_Process -Filter "ParentProcessId=${shell} AND Name='ssh.exe'" | Sort-Object CreationDate | Select-Object -Last 1; if ($p) { @{ pid = $p.ProcessId; file = $p.ExecutablePath; line = $p.CommandLine } | ConvertTo-Json -Compress }`,
     ]);
-    console.log(`[DEBUG-w7k3] powershell ${Date.now() - t0}ms out=${json}`);
     if (!json) return undefined;
     const p = JSON.parse(json) as { pid: number; file: string; line: string };
     return {

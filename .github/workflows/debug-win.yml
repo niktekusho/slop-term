@@ -7,31 +7,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        src: [fixed, main]
         run: [1, 2, 3, 4, 5, 6]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
+      - if: matrix.src == 'main'
+        shell: bash
+        run: git fetch --depth=1 origin main && git checkout FETCH_HEAD -- src
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: cold timing probe
-        shell: bash
-        run: |
-          t() { s=$(date +%s%N); "$@" >/dev/null; echo "[DEBUG-w7k3] $(( ($(date +%s%N)-s)/1000000 ))ms: ${*: -1}"; }
-          if [ $(( ${{ matrix.run }} % 2 )) = 1 ]; then
-            t powershell.exe -NoProfile -NonInteractive -Command 1
-            t powershell.exe -NoProfile -NonInteractive -Command 1
-          fi
-          t powershell.exe -NoProfile -NonInteractive -Command 'Get-CimInstance Win32_Process -Filter "ProcessId=1" | Out-Null'
-          t powershell.exe -NoProfile -NonInteractive -Command 'Get-CimInstance Win32_Process -Filter "ProcessId=1" | Out-Null'
-          t powershell.exe -NoProfile -NonInteractive -Command 1
-      - name: first typed-ssh test, three times
-        shell: bash
-        run: |
-          for i in 1 2 3; do
-            echo "=== attempt $i"
-            pnpm vitest run src/backend/typed-ssh.test.ts -t "finds the ssh child" 2>&1 | grep -aE 'DEBUG-w7k3|✓|×|Tests ' || true
-          done
+      - run: pnpm test
