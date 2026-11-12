@@ -240,13 +240,22 @@ export function createEditorSync(
 
   async function begin(edit: Edit) {
     await download(edit);
-    const app = await openInEditor(edit.file, (await settings()).editor);
-    update(edit, { edit: { app } });
+    // The watch starts before the editor can save: a save before it is lost, and on macOS FSEvents goes live a few ms after watch().
     let settling: NodeJS.Timeout | undefined;
-    edit.watcher = watch(path.dirname(edit.file), () => {
+    const watcher = watch(path.dirname(edit.file), () => {
       clearTimeout(settling);
       settling = setTimeout(() => run(edit), settleMs);
     });
+    let app: string;
+    try {
+      app = await openInEditor(edit.file, (await settings()).editor);
+    } catch (e) {
+      watcher.close();
+      throw e;
+    }
+    // A retry of an edit without a watcher downloads and opens it again.
+    edit.watcher = watcher;
+    update(edit, { edit: { app } });
   }
 
   /**

@@ -1,13 +1,18 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { eventually, startBackend } from './harness.ts';
 
 let harness: Awaited<ReturnType<typeof startBackend>>;
-beforeEach(async () => {
-  harness = await startBackend();
-});
 afterEach(() => harness.stop());
+
+// A file written right after the start can miss the settings watcher: on macOS its FSEvents stream starts later.
+// So settings a test reads are in place before the start.
+async function start(settings?: object) {
+  harness = await startBackend(
+    settings ? { 'settings.json': JSON.stringify(settings) } : {},
+  );
+}
 
 const settingsFile = () => path.join(harness.home, 'settings.json');
 const settingsEvents = () =>
@@ -15,6 +20,7 @@ const settingsEvents = () =>
 
 describe('settings', () => {
   it('uses the defaults when settings.json is missing', async () => {
+    await start();
     expect(await harness.backend.settings()).toEqual({
       theme: 'system',
       fontSize: 12,
@@ -26,42 +32,34 @@ describe('settings', () => {
   });
 
   it('names a KeePass database after its file unless the list gives a name, and skips an entry without a path', async () => {
-    await writeFile(
-      settingsFile(),
-      JSON.stringify({
-        keepassDatabases: [
-          { path: 'C:\\Users\\me\\OneDrive\\work.kdbx' },
-          { name: 'home', path: '/Users/me/Passwords.kdbx' },
-          { name: 'broken' },
-        ],
-      }),
-    );
-    await eventually(async () =>
-      expect((await harness.backend.settings()).keepassDatabases).toEqual([
-        { name: 'work', path: 'C:\\Users\\me\\OneDrive\\work.kdbx' },
+    await start({
+      keepassDatabases: [
+        { path: 'C:\\Users\\me\\OneDrive\\work.kdbx' },
         { name: 'home', path: '/Users/me/Passwords.kdbx' },
-      ]),
-    );
+        { name: 'broken' },
+      ],
+    });
+    expect((await harness.backend.settings()).keepassDatabases).toEqual([
+      { name: 'work', path: 'C:\\Users\\me\\OneDrive\\work.kdbx' },
+      { name: 'home', path: '/Users/me/Passwords.kdbx' },
+    ]);
   });
 
   it('reads a Session colour tint from 0 to 100 and falls back to 10 for anything else', async () => {
-    await writeFile(settingsFile(), JSON.stringify({ sessionColourTint: 0 }));
-    await eventually(async () =>
-      expect((await harness.backend.settings()).sessionColourTint).toBe(0),
-    );
-    await writeFile(settingsFile(), JSON.stringify({ sessionColourTint: 101 }));
-    await eventually(async () =>
-      expect((await harness.backend.settings()).sessionColourTint).toBe(10),
-    );
+    await start({ sessionColourTint: 0 });
+    expect((await harness.backend.settings()).sessionColourTint).toBe(0);
+    await harness.backend.updateSettings({ sessionColourTint: 101 });
+    expect((await harness.backend.settings()).sessionColourTint).toBe(10);
   });
 
   it('sends a settings message when settings.json changes on disk', async () => {
-    await harness.backend.settings();
-    await writeFile(
-      settingsFile(),
-      JSON.stringify({ theme: 'dark', fontFamily: 'Consolas' }),
-    );
-    await eventually(() =>
+    await start();
+    // The watcher may miss a write in its first milliseconds, so the test saves again until it hears one.
+    await eventually(async () => {
+      await writeFile(
+        settingsFile(),
+        JSON.stringify({ theme: 'dark', fontFamily: 'Consolas' }),
+      );
       expect(settingsEvents().at(-1)).toEqual({
         theme: 'dark',
         fontFamily: 'Consolas',
@@ -70,11 +68,12 @@ describe('settings', () => {
         uploadOnSave: true,
         sessionColourTint: 10,
         keepassDatabases: [],
-      }),
-    );
+      });
+    });
   });
 
   it('saves a new font size and keeps the other keys', async () => {
+    await start();
     await writeFile(
       settingsFile(),
       JSON.stringify({ theme: 'light', tpmBaseUrl: 'https://tpm.example' }),
@@ -95,6 +94,7 @@ describe('settings', () => {
   });
 
   it('refuses to save over a settings.json that is not valid JSON', async () => {
+    await start();
     await writeFile(settingsFile(), '{ "theme": "dark",');
     await expect(
       harness.backend.updateSettings({ fontSize: 14 }),
@@ -103,6 +103,7 @@ describe('settings', () => {
   });
 
   it('opens settings.json in the configured editor', async () => {
+    await start();
     const opened = path.join(harness.home, 'opened.txt');
     const editor =
       process.platform === 'win32'
@@ -115,10 +116,7 @@ describe('settings', () => {
         : `#!/bin/sh\necho "$1" > "${opened}"\n`,
       { mode: 0o755 },
     );
-    await writeFile(settingsFile(), JSON.stringify({ editor }));
-    await eventually(async () =>
-      expect((await harness.backend.settings()).editor).toBe(editor),
-    );
+    await harness.backend.updateSettings({ editor });
 
     await harness.backend.openSettings();
     await eventually(async () =>

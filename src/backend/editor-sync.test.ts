@@ -38,10 +38,8 @@ describe('editor sync against an in-process server', () => {
         : `#!/bin/sh\necho "$1" > "${opened}"\n`,
       { mode: 0o755 },
     );
-    await writeFile(
-      path.join(harness.home, 'settings.json'),
-      JSON.stringify({ editor, ...settings }),
-    );
+    // A file written right after the start can miss the settings watcher: on macOS its FSEvents stream starts later.
+    await harness.backend.updateSettings({ editor, ...settings });
     await writeFile(
       path.join(harness.home, '.ssh', 'slop-term.conf'),
       [
@@ -58,9 +56,6 @@ describe('editor sync against an in-process server', () => {
     await writeFile(
       path.join(harness.home, '.ssh', 'config'),
       includeManaged(harness.home),
-    );
-    await eventually(async () =>
-      expect((await harness.backend.settings()).editor).toBe(editor),
     );
     const tab = await harness.backend.openSsh('box');
     if (server.code) {

@@ -70,8 +70,12 @@ const typeSsh = (tab: TabId, extra = '') =>
 async function openShell() {
   const [shell] = await harness.backend.listShells();
   const tab = await harness.backend.openLocalShell(shell);
-  // The prompt shows once the shell reads input.
-  await eventually(() => expect(harness.output(tab)).toMatch(/[>$%#] ?$/m));
+  // The prompt shows once the shell reads input. zsh writes control sequences after it, such as `\e[K\e[?2004h`.
+  const text = () =>
+    harness
+      .output(tab)
+      .replace(/\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07/g, '');
+  await eventually(() => expect(text()).toMatch(/[>$%#] ?$/m));
   return tab;
 }
 
