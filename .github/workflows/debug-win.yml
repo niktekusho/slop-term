@@ -17,6 +17,17 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: cold timing probe
+        shell: bash
+        run: |
+          t() { s=$(date +%s%N); "$@" >/dev/null; echo "[DEBUG-w7k3] $(( ($(date +%s%N)-s)/1000000 ))ms: ${*: -1}"; }
+          if [ $(( ${{ matrix.run }} % 2 )) = 1 ]; then
+            t powershell.exe -NoProfile -NonInteractive -Command 1
+            t powershell.exe -NoProfile -NonInteractive -Command 1
+          fi
+          t powershell.exe -NoProfile -NonInteractive -Command 'Get-CimInstance Win32_Process -Filter "ProcessId=1" | Out-Null'
+          t powershell.exe -NoProfile -NonInteractive -Command 'Get-CimInstance Win32_Process -Filter "ProcessId=1" | Out-Null'
+          t powershell.exe -NoProfile -NonInteractive -Command 1
       - name: first typed-ssh test, three times
         shell: bash
         run: |
