@@ -85,7 +85,7 @@ describe('typed ssh in a local shell Tab', () => {
       `ssh ${quiet} -p ${server.port} test@127.0.0.1\r`,
     );
     await eventually(() =>
-      expect(last(tab)).toEqual<TypedSsh>({
+      expect(last(tab), `[DEBUG-w7k3] output=${JSON.stringify(harness.output(tab))}`).toEqual<TypedSsh>({
         alias: '127.0.0.1',
         user: 'test',
         host: '127.0.0.1',

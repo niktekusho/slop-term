@@ -1,0 +1,26 @@
+name: debug-win
+on:
+  push:
+    branches: [debug/win-typed-ssh]
+jobs:
+  repro:
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1, 2, 3, 4, 5, 6]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: first typed-ssh test, three times
+        shell: bash
+        run: |
+          for i in 1 2 3; do
+            echo "=== attempt $i"
+            pnpm vitest run src/backend/typed-ssh.test.ts -t "finds the ssh child" 2>&1 | grep -aE 'DEBUG-w7k3|✓|×|Tests ' || true
+          done
