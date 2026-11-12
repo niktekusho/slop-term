@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { TabId, TypedSsh } from '../shared/ipc.ts';
 import {
   eventually,
@@ -10,6 +10,7 @@ import {
   startBackend,
 } from './harness.ts';
 import { startFakeSshServer, testKeyPair } from './ssh-server.ts';
+import { findSsh } from './typed-ssh.ts';
 
 // Secrets go to a keychain service of this test run, never the app's own.
 const service = `slop-term-test-${process.pid}`;
@@ -24,6 +25,11 @@ afterEach(async () => {
   await server?.stop();
   server = undefined;
 });
+
+// On a freshly booted Windows the first process query starts PowerShell and WMI cold: 4 to 15 s under the full suite, past the first test's wait.
+beforeAll(async () => {
+  if (process.platform === 'win32') await findSsh(process.pid);
+}, 60_000);
 
 // Each typed `ssh` waits 0.5 s and then about 1.5 s for the Windows process query: a test that runs several needs longer than the default.
 const longMs = 60_000;
