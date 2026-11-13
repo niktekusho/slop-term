@@ -6,7 +6,7 @@
 
 **Blocked by:** none
 
-**Status:** open
+**Status:** done
 
 ## Agent brief
 
@@ -18,8 +18,8 @@
 
 **Test seam:** `App` rendered against `FakeBackend`. jsdom has no layout and does not load `index.css`, so the test asserts the modifier class on the opened menu, and that the "New local shell" menu does not have it.
 
-- [ ] The "New" dropdown stays fully inside the window at the narrow sidebar width shown in the screenshot.
-- [ ] A renderer test opens the dropdown and checks that it is anchored to the toolbar's left edge (the modifier class), and that the "New local shell" menu is not.
+- [x] The "New" dropdown stays fully inside the window at the narrow sidebar width shown in the screenshot. Checked by hand on Windows.
+- [x] A renderer test opens the dropdown and checks that it is anchored to the toolbar's left edge (the modifier class), and that the "New local shell" menu is not.
 
 ## Test coverage
 
