@@ -4,7 +4,7 @@
 
 **Blocked by:** none
 
-**Status:** ready-for-agent
+**Status:** done
 
 ## Agent brief
 
@@ -18,9 +18,9 @@
 
 **Test seam:** none in jsdom. Check it in the real renderer: repeat the `elementFromPoint` hit test above in a hidden Electron window, or click both buttons in `pnpm start` against an unknown host.
 
-- [ ] "Trust and connect" and "Cancel" on the unknown-host prompt respond to the mouse in `pnpm start`.
-- [ ] The changed-key prompt's buttons and the password prompt (`SecretPrompt`) respond to the mouse.
-- [ ] The paste confirmation (`.question`) and find bar (`.find`) still show above the terminal.
+- [x] "Trust and connect" and "Cancel" on the unknown-host prompt respond to the mouse in `pnpm start`.
+- [x] The changed-key prompt's buttons and the password prompt (`SecretPrompt`) respond to the mouse.
+- [x] The paste confirmation (`.question`) and find bar (`.find`) still show above the terminal.
 
 ## Test coverage
 
