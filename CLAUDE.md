@@ -8,6 +8,8 @@ Check with `pnpm lint` while working and run `pnpm lint:fix` once before the com
 
 After editing a shared test helper (`harness.ts`, `ssh-server.ts`, `fake-backend.ts`), run the files that import it with `pnpm vitest related --run <file>`. A break there hides among timeouts in the full suite.
 
+For real-renderer checks jsdom can't run (hit testing, layout, WebGL), copy `.scratch/slop-term-v1-build/issues/24-hit-test/`. Its script is `.cjs` because `package.json` sets `type: module`: a `.js` script fails to load and Electron's modal error dialog hangs the run.
+
 Revert an experiment in a committed file with `git checkout -- <file>`: an Edit back can leave part of the change.
 
 Review uncommitted work with `git diff HEAD`. A `<fixed-point>...HEAD` diff is empty until the commit.

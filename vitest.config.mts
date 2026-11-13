@@ -21,6 +21,8 @@ export default defineConfig({
           name: 'ui',
           include: ['src/renderer/**/*.test.tsx'],
           environment: 'jsdom',
+          // A fresh jsdom per file cost a third of the UI run: vmThreads creates one per worker and keeps each file isolated.
+          pool: 'vmThreads',
           setupFiles: ['src/renderer/test-setup.ts'],
         },
       },
