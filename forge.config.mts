@@ -5,6 +5,8 @@ import { FuseV1Options, FuseVersion } from '@electron/fuses';
 
 const config: ForgeConfig = {
   packagerConfig: {
+    // Forge appends .ico on Windows and .icns on macOS.
+    icon: 'assets/icon',
     // node-pty and the keyring are native modules Vite can't bundle: ship them beside the bundle and outside the asar.
     asar: { unpack: '**/node_modules/{node-pty,@napi-rs}/**' },
     ignore: (file) =>
