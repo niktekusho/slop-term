@@ -23,9 +23,9 @@
 
 ## Test coverage
 
-Back end: `src/backend/session-rules.test.ts`, `src/backend/mobaxterm.test.ts`.
+Back end: `src/shared/session-rules.test.ts`, `src/backend/mobaxterm.test.ts`.
 
-- `aliasProblem` and `slugify`: the unit tests in `session-rules.test.ts` run each of the 14 blocked characters through `aliasProblem` and `slugify`, and `slugify` on the example name.
+- `aliasProblem` and `slugify`: the unit tests in `src/shared/session-rules.test.ts` run each of the 14 blocked characters through `aliasProblem` and `slugify`, and `slugify` on the example name.
 - Preview proposes the cleaned alias: "proposes an alias without the characters ssh rejects" in `mobaxterm.test.ts`.
 - Hand-typed `(` blocks Import: `importAliasProblem` has a unit test. `ImportDialog.tsx` already shows that function's message and blocks Import on it, so no new UI test.
 - Typed `ssh` host: `typedAlias` unit test, including the user-host fallback. The flow around it is unchanged.

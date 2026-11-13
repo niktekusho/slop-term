@@ -9,7 +9,7 @@ export default defineConfig({
       {
         test: {
           name: 'backend',
-          include: ['src/backend/**/*.test.ts'],
+          include: ['src/backend/**/*.test.ts', 'src/shared/**/*.test.ts'],
           environment: 'node',
           globalSetup: ['src/backend/global-setup.ts'],
           testTimeout: 20_000,

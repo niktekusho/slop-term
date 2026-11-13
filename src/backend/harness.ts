@@ -172,6 +172,8 @@ export async function startBackend(
         .flatMap((e) => (e.type === 'output' && e.tab === tab ? e.data : []))
         .join('')
         .replace(
+          // The escape character is the point of this pattern.
+          // oxlint-disable-next-line no-control-regex
           /\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g,
           '',
         ),

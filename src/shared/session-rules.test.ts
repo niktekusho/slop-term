@@ -4,7 +4,7 @@ import {
   importAliasProblem,
   slugify,
   typedAlias,
-} from '../shared/session-rules.ts';
+} from './session-rules.ts';
 
 // Every character `ssh -G a<c>b` rejects with "hostname contains invalid characters" (OpenSSH 10.6).
 const sshRejected = [...`()'&$;|<>"\`\\{}`];
