@@ -247,7 +247,7 @@ A one-time MobaXterm import shows a preview of every session before writing anyt
 - KeePass: `kdbxweb` 2.1.1 with `hash-wasm` for Argon2. `@xmldom/xmldom` is pinned to 0.8.15 with npm `overrides`.
 - Processes: the whole back end (`ssh2`, `node-pty`, providers, config files, process detection) runs in one Electron `utilityProcess`. The main process manages the window, relays messages and serves the profiling panel, whose Electron APIs exist only there. The UI talks to the back end only by IPC messages, so a later native back end could replace it. No worker threads for `node-pty`.
 - One window. Tabs never open new windows.
-- Distribution: no installer, no auto-update, no telemetry. The user runs `npm run package` on each machine.
+- Distribution: no installer, no auto-update, no telemetry. The user runs `pnpm install-app` on each machine.
 
 ### Modules
 

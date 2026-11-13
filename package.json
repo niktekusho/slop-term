@@ -16,6 +16,7 @@
     "start": "electron-forge start",
     "start:profile": "electron-forge start --inspect-electron",
     "package": "electron-forge package",
+    "install-app": "node scripts/install-app.mjs",
     "lint": "oxlint && oxfmt --check",
     "lint:fix": "oxlint --fix && oxfmt --write",
     "typecheck": "tsc --noEmit",
