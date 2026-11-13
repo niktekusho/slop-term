@@ -276,6 +276,14 @@ describe('MobaXterm import preview', () => {
     ]);
   });
 
+  it('proposes an alias without the characters ssh rejects', async () => {
+    const { backend, file } = await start(
+      ini(root(sshLine('example-host-(testuser)'))),
+    );
+    const [row] = await backend.previewImport(file);
+    expect([row.alias, row.problems]).toEqual(['example-host-testuser', []]);
+  });
+
   it('puts each session in the folder its SubRep names, nested on backslashes', async () => {
     const { backend, file } = await start(
       ini(

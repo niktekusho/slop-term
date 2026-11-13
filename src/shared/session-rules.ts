@@ -67,11 +67,14 @@ export const takenNames = (tree: SessionTree) => [
   ...tree.localShells.map((s) => s.name),
 ];
 
+/** An alias can't hold whitespace or a `Host` pattern character. It also can't hold one `ssh -G` rejects as "hostname contains invalid characters". */
+const badAliasChars = /[\s*?!,()'&$;|<>"`\\{}]/;
+
 /** The alias rules the dialog shows while typing and the back end checks on save. `taken` leaves out the session's own alias. */
 export function aliasProblem(alias: string, taken: string[]) {
   if (!alias) return 'Type an alias.';
   if (alias !== alias.toLowerCase()) return 'Use lowercase letters.';
-  const bad = alias.match(/[\s*?!,]/)?.[0];
+  const bad = alias.match(badAliasChars)?.[0];
   if (bad) return `No ${/\s/.test(bad) ? 'spaces' : bad} in an alias.`;
   if (taken.some((t) => t.toLowerCase() === alias))
     return `${alias} is already taken.`;
@@ -91,11 +94,11 @@ export function importAliasProblem(
   return undefined;
 }
 
-/** Lowercase, with each run of spaces or characters an alias can't hold as one `-`. */
+/** Lowercase, with each run of characters an alias can't hold, and of dashes, as one `-`. */
 export const slugify = (text: string) =>
   text
     .toLowerCase()
-    .replace(/[\s*?!,]+/g, '-')
+    .replace(new RegExp(`(${badAliasChars.source}|-)+`, 'g'), '-')
     .replace(/^-+|-+$/g, '');
 
 /** The alias a Saved session for a typed `ssh` starts with: the typed host, or `<user>-<host>` when that is taken. */
