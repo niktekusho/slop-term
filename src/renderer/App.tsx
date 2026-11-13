@@ -15,6 +15,7 @@ import {
   type BackendClient,
   type CredentialReference,
   type HostKeyQuestion,
+  type ImportRow,
   type KeepassTarget,
   type SecretQuestion,
   type SessionColour,
@@ -60,6 +61,7 @@ import {
 } from './LocalShellDialog.tsx';
 import { headerColours, terminalOptions } from './look.ts';
 import { HostKeyPrompt } from './HostKeyPrompt.tsx';
+import { ImportDialog } from './ImportDialog.tsx';
 import { SecretPrompt } from './SecretPrompt.tsx';
 import {
   CloseTabConfirm,
@@ -131,6 +133,7 @@ export function App({
   const [moving, setMoving] = useState<{ item: TreeItem; current: string }>();
   const [deletingFolder, setDeletingFolder] = useState<FolderContents>();
   const [movedIn, setMovedIn] = useState<string>();
+  const [importing, setImporting] = useState<ImportRow[]>();
   const [notice, setNotice] = useState<string>();
   // A Tab whose close waits for the user to confirm its unfinished transfers.
   const [closing, setClosing] = useState<TabId>();
@@ -143,6 +146,7 @@ export function App({
     !!moving ||
     !!deletingFolder ||
     !!movedIn ||
+    !!importing ||
     !!closing;
   const [reconnectingAll, setReconnectingAll] = useState(false);
   const treeMenuRef = useRef<HTMLUListElement>(null);
@@ -559,6 +563,17 @@ export function App({
     else void update(backend.deleteFolder(folder, [], false));
   };
 
+  const startImport = async () => {
+    setNewMenuOpen(false);
+    setNotice(undefined);
+    try {
+      const file = await backend.pickImportFile(await backend.findMobaxterm());
+      if (file) setImporting(await backend.previewImport(file));
+    } catch (e) {
+      fail(e as Error);
+    }
+  };
+
   const moveIn = (alias: string) =>
     backend
       .moveIn(alias)
@@ -875,6 +890,12 @@ export function App({
                     Folder
                   </button>
                 </li>
+                <li role="separator" />
+                <li role="none">
+                  <button role="menuitem" onClick={startImport}>
+                    Import from MobaXterm…
+                  </button>
+                </li>
               </ul>
             )}
           </div>
@@ -1156,6 +1177,18 @@ export function App({
           edits={unsent}
           onShow={(file) => backend.showItem(file)}
           onClose={() => setUnsent([])}
+        />
+      )}
+      {importing && (
+        <ImportDialog
+          backend={backend}
+          tree={tree}
+          rows={importing}
+          onCancel={() => setImporting(undefined)}
+          onImported={(next) => {
+            setTree(next);
+            setImporting(undefined);
+          }}
         />
       )}
       {movedIn && (

@@ -8,6 +8,7 @@ import {
 import { createConfigStore } from './config-store.ts';
 import { providers } from './credentials.ts';
 import { createKeepass } from './keepass.ts';
+import { findMobaxterm } from './mobaxterm.ts';
 import { createTpm } from './tpm.ts';
 import { createSessions } from './sessions.ts';
 import { createSettings } from './settings.ts';
@@ -46,6 +47,7 @@ const handle = serve(
     ...store,
     ...tpmMethods,
     ...keepassMethods,
+    findMobaxterm,
   },
   send,
 );

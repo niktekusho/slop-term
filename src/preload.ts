@@ -24,6 +24,8 @@ contextBridge.exposeInMainWorld('slop', {
     pickKeyFile: () => ipcRenderer.invoke('dialogs', 'pickKeyFile'),
     pickFolder: () => ipcRenderer.invoke('dialogs', 'pickFolder'),
     pickFiles: () => ipcRenderer.invoke('dialogs', 'pickFiles'),
+    pickImportFile: (defaultPath) =>
+      ipcRenderer.invoke('dialogs', 'pickImportFile', defaultPath),
     showItem: (file) => ipcRenderer.invoke('dialogs', 'showItem', file),
     pathForFile: (file) => webUtils.getPathForFile(file),
   } satisfies Dialogs,

@@ -78,8 +78,21 @@ export function aliasProblem(alias: string, taken: string[]) {
   return undefined;
 }
 
+/** Why an import row can't come in under its alias. `others` are the aliases of the other ticked rows. */
+export function importAliasProblem(
+  alias: string,
+  taken: string[],
+  others: string[],
+) {
+  const problem = aliasProblem(alias, []);
+  if (problem) return problem;
+  if (taken.some((t) => t.toLowerCase() === alias)) return 'Already exists.';
+  if (others.includes(alias)) return 'Another row imports under this alias.';
+  return undefined;
+}
+
 /** Lowercase, with each run of spaces or characters an alias can't hold as one `-`. */
-const slugify = (text: string) =>
+export const slugify = (text: string) =>
   text
     .toLowerCase()
     .replace(/[\s*?!,]+/g, '-')

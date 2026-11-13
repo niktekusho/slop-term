@@ -25,6 +25,7 @@ import {
   aliasProblem,
   deletable,
   folderProblem,
+  importAliasProblem,
   inFolder,
   joinFolder as join,
   nameOf,
@@ -38,6 +39,7 @@ import {
   provider,
   providers,
 } from './credentials.ts';
+import { previewRows } from './mobaxterm.ts';
 import { resolve, type Resolved } from './resolver.ts';
 
 const includeLine = 'Include ~/.ssh/slop-term.conf';
@@ -432,6 +434,19 @@ function formOf(
   };
 }
 
+/** The concrete hosts the file itself defines, as their blocks write them. Hosts of the files it includes are left out. */
+function hostBlocks(file: string) {
+  const { lines } = splitLines(readText(file) ?? '');
+  return lines.flatMap((line, start) => {
+    if (!hostLine.test(line)) return [];
+    let end = start + 1;
+    while (end < lines.length && !sectionStart.test(lines[end])) end++;
+    return words(parseLine(line))
+      .filter((alias) => !/[*?!]/.test(alias))
+      .map((alias) => formOf(lines.slice(start, end), alias, undefined));
+  });
+}
+
 export function blockLines(form: SessionForm) {
   const fields = (Object.keys(fieldParams) as Field[]).flatMap((f) => {
     const value = f === 'identityFile' ? tildePath(form[f]) : form[f];
@@ -502,6 +517,8 @@ export function createConfigStore(
   | 'getLocalShell'
   | 'saveLocalShell'
   | 'deleteLocalShell'
+  | 'previewImport'
+  | 'importSessions'
 > {
   const dir = path.join(homedir(), '.ssh');
   const managed = ssh('slop-term.conf');
@@ -591,6 +608,12 @@ export function createConfigStore(
 
   const gone = (item: string) =>
     `${item} is no longer in slop-term.conf or slop-term.json.`;
+
+  /** Every alias and Local shell session name a new one must not repeat. */
+  const takenBy = (raw: RawSidecar) => [
+    ...hostsIn(managed, config),
+    ...Object.keys(raw.localShells ?? {}),
+  ];
 
   const writeSidecar = (raw: RawSidecar) =>
     writeFileSync(sidecarFile, JSON.stringify(raw, null, 2) + '\n');
@@ -938,6 +961,72 @@ export function createConfigStore(
         Object.entries(raw.localShells ?? {}).filter(([n]) => n !== name),
       );
       writeSidecar(raw);
+      return reload();
+    },
+
+    async previewImport(file) {
+      const raw = parseSidecar(sidecarFile);
+      return previewRows(file, {
+        taken: takenBy(raw),
+        hosts: [...hostBlocks(managed), ...hostBlocks(config)],
+        folders: shownFolders(raw, hostsIn(managed)),
+      });
+    },
+
+    // ponytail: no `ssh -G` check per block as Save has; MobaXterm's host, user and key fields are plain values that directiveLine quotes.
+    async importSessions(rows) {
+      const raw = parseSidecar(sidecarFile);
+      const taken = takenBy(raw);
+      const sessions = rows.filter((r) => r.kind !== 'skipped');
+      const done: string[] = [];
+      for (const row of sessions) {
+        const problem =
+          importAliasProblem(row.alias, taken, done) ??
+          colourProblem(row.colour);
+        if (problem)
+          throw new Error(`${row.alias}: ${problem} Run the import again.`);
+        done.push(row.alias);
+      }
+      const { lines, eol } = splitLines(readText(managed) ?? '');
+      const sshRows = sessions.filter((r) => r.kind === 'ssh');
+      for (const row of sshRows) {
+        const block = [
+          ...(row.comment ? [`# ${row.comment}`] : []),
+          `Host ${row.alias}`,
+          ...blockLines({
+            ...row,
+            port: row.port === '22' ? '' : row.port,
+            options: ['ServerAliveInterval 15'],
+          }).map((line) => `  ${line}`),
+        ];
+        if (lines.at(-1)?.trim()) lines.push(eol);
+        lines.push(...block.map((line) => line + eol));
+      }
+      for (const row of sshRows) {
+        const entry = JSON.parse(
+          JSON.stringify({
+            folder: row.folder || undefined,
+            colour: row.colour,
+          }),
+        );
+        if (Object.keys(entry).length)
+          raw.hosts = { ...raw.hosts, [row.alias]: entry };
+      }
+      for (const row of sessions.filter((r) => r.kind === 'wsl'))
+        raw.localShells = {
+          ...raw.localShells,
+          [row.alias]: shellEntry({
+            name: row.alias,
+            folder: row.folder,
+            kind: 'wsl',
+            distro: '',
+            startFolder: '',
+            command: '',
+            colour: row.colour,
+          }),
+        };
+      if (sshRows.length) writeFileSync(managed, lines.join(''));
+      if (sessions.length) writeSidecar(raw);
       return reload();
     },
 

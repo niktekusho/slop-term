@@ -125,6 +125,7 @@ export async function startBackend(
         ELECTRON_RUN_AS_NODE: '1',
         HOME: home,
         USERPROFILE: home,
+        APPDATA: path.join(home, 'AppData', 'Roaming'),
         ...env,
       },
       stdio: ['ignore', 'inherit', 'inherit', 'ipc'],

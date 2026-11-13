@@ -6,6 +6,7 @@ import {
   type BackendEvent,
   type KeepassDatabase,
   type FileCounts,
+  type ImportRow,
   type KeepassFind,
   type ProcessMetrics,
   type RemoteFile,
@@ -65,6 +66,13 @@ export class FakeBackend implements BackendClient {
   remoteHome = '/home/me';
   /** What `measureFiles` answers per path; a path without one is a single file of 0 bytes. */
   measures: Record<string, FileCounts> = {};
+  /** What `findMobaxterm` finds, the import picker answers (none is a cancel), and `previewImport` lists. */
+  mobaxtermFile: string | undefined =
+    'C:\\Users\\me\\AppData\\Roaming\\MobaXterm\\MobaXterm.ini';
+  importFile: string | undefined = 'C:\\moba\\picked.ini';
+  importRows: ImportRow[] = [];
+  /** The folders the import picker started at. */
+  pickedImportFrom: (string | undefined)[] = [];
   /** What `unsentEdits` answers at startup. */
   unsent: UnsentEdit[] = [];
   private listeners = new Set<(event: BackendEvent) => void>();
@@ -449,6 +457,28 @@ export class FakeBackend implements BackendClient {
 
   async pickFolder() {
     return this.folder;
+  }
+
+  async pickImportFile(defaultPath?: string) {
+    this.pickedImportFrom.push(defaultPath);
+    return this.importFile;
+  }
+
+  async findMobaxterm() {
+    this.requests.push({ method: 'findMobaxterm', args: [] });
+    return this.mobaxtermFile;
+  }
+
+  async previewImport(...args: Parameters<Backend['previewImport']>) {
+    this.requests.push({ method: 'previewImport', args });
+    return this.importRows;
+  }
+
+  /** Fails with `saveError`, else answers the tree as it is: a test sets the tree the import leads to. */
+  async importSessions(...args: Parameters<Backend['importSessions']>) {
+    this.requests.push({ method: 'importSessions', args });
+    if (this.saveError) throw new Error(this.saveError);
+    return this.tree;
   }
 
   async pickFiles() {

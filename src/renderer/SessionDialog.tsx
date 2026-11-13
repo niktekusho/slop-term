@@ -76,21 +76,36 @@ export function ColourRow({
   return (
     <>
       <label htmlFor={id}>Colour</label>
-      <select
-        id={id}
-        value={value ?? ''}
-        onChange={(e) =>
-          onChange(isSessionColour(e.target.value) ? e.target.value : undefined)
-        }
-      >
-        <option value="">None</option>
-        {sessionColours.map((c) => (
-          <option key={c} value={c}>
-            {c[0].toUpperCase() + c.slice(1)}
-          </option>
-        ))}
-      </select>
+      <ColourSelect id={id} value={value} onChange={onChange} />
     </>
+  );
+}
+
+export function ColourSelect({
+  value,
+  onChange,
+  ...props
+}: {
+  id?: string;
+  'aria-label'?: string;
+  value?: SessionColour;
+  onChange(colour?: SessionColour): void;
+}) {
+  return (
+    <select
+      {...props}
+      value={value ?? ''}
+      onChange={(e) =>
+        onChange(isSessionColour(e.target.value) ? e.target.value : undefined)
+      }
+    >
+      <option value="">None</option>
+      {sessionColours.map((c) => (
+        <option key={c} value={c}>
+          {c[0].toUpperCase() + c.slice(1)}
+        </option>
+      ))}
+    </select>
   );
 }
 

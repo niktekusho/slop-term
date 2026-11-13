@@ -99,6 +99,16 @@ app.whenReady().then(() => {
       });
       return canceled ? undefined : filePaths[0];
     },
+    async pickImportFile(defaultPath) {
+      const { canceled, filePaths } = await dialog.showOpenDialog(window, {
+        defaultPath,
+        filters: [
+          { name: 'MobaXterm sessions', extensions: ['ini', 'mxtsessions'] },
+        ],
+        properties: ['openFile'],
+      });
+      return canceled ? undefined : filePaths[0];
+    },
     async pickFiles() {
       const { canceled, filePaths } = await dialog.showOpenDialog(window, {
         properties: ['openFile', 'multiSelections'],

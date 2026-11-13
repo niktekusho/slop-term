@@ -662,6 +662,37 @@ body,
   width: 460px;
 }
 
+.import-dialog {
+  width: 1100px;
+}
+
+.import-dialog table {
+  width: 100%;
+  margin: 8px 0 16px;
+  border-collapse: collapse;
+}
+
+.import-dialog th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--fg-muted);
+}
+
+.import-dialog th,
+.import-dialog td {
+  padding: 4px 8px 4px 0;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+
+.import-dialog td .problem {
+  display: block;
+}
+
+.import-dialog tr.unticked td:not(:first-child) {
+  opacity: 0.6;
+}
+
 .confirm {
   width: 420px;
 }

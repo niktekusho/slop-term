@@ -161,6 +161,25 @@ export type SessionDefaults = {
   identityFile: string;
 };
 
+/**
+ * One MobaXterm session as the import preview shows it. `name` is MobaXterm's; `alias` is what it imports as. `skipped` is a type the import can't bring over.
+ * `ticked` is the row's starting state. `problems` lists what doesn't come across and why the row may start unticked.
+ */
+export type ImportRow = {
+  name: string;
+  kind: 'ssh' | 'wsl' | 'skipped';
+  alias: string;
+  folder: string;
+  hostname: string;
+  port: string;
+  user: string;
+  identityFile: string;
+  comment: string;
+  colour?: SessionColour;
+  ticked: boolean;
+  problems: string[];
+};
+
 /** A TPM password entry as a search lists it, without its secret. `id` is the Credential reference's `entry`. */
 export type TpmEntry = { id: string; name: string; username: string };
 
@@ -399,6 +418,12 @@ export interface Backend {
   unlockKeepass(name: string, password: string): Promise<void>;
   /** Locks every database. */
   lockKeepass(): Promise<void>;
+  /** The first `MobaXterm.ini` in MobaXterm's usual folders, for the import's file picker. */
+  findMobaxterm(): Promise<string | undefined>;
+  /** Reads a `MobaXterm.ini` or `.mxtsessions` file into one row per session. Writes nothing. */
+  previewImport(file: string): Promise<ImportRow[]>;
+  /** Imports the rows the user confirmed, writing each file once. Rejects, writing nothing, when an alias got taken since the preview. */
+  importSessions(rows: ImportRow[]): Promise<SessionTree>;
   /** Copies a Hand-written host's block from `~/.ssh/config` into the Managed config. */
   moveIn(alias: string): Promise<SessionTree>;
   /** Comments out a Managed host's copy in `~/.ssh/config` under a `# moved to slop-term.conf` marker. */
@@ -443,6 +468,8 @@ export interface Dialogs {
   /** Resolves to the picked file, as `~/…` when it is in the home folder. */
   pickKeyFile(): Promise<string | undefined>;
   pickFolder(): Promise<string | undefined>;
+  /** A `MobaXterm.ini` or `.mxtsessions` file, starting at `defaultPath`. */
+  pickImportFile(defaultPath?: string): Promise<string | undefined>;
   /** Files only: the native picker can't offer files and folders at once on Windows. */
   pickFiles(): Promise<string[]>;
   /** Opens Explorer or Finder with the file selected. */
@@ -565,6 +592,9 @@ const methods: { [M in keyof Backend]: true } = {
   deleteFolder: true,
   moveIn: true,
   commentOut: true,
+  findMobaxterm: true,
+  previewImport: true,
+  importSessions: true,
   findTpm: true,
   setTpmKeys: true,
   findKeepass: true,
