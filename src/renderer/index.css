@@ -567,8 +567,10 @@ body,
   padding: 0;
 }
 
+/* xterm's layers carry z-index 2 to 11: isolation keeps them below the prompts, find bar and paste question that follow. */
 .terminal {
   height: 100%;
+  isolation: isolate;
 }
 
 /* xterm.css paints the viewport black; it shows below the last row, where fit leaves less than a row. */

@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+  <head>
+    <link rel="stylesheet" href="../../../../node_modules/@xterm/xterm/css/xterm.css" />
+    <link rel="stylesheet" href="../../../../src/renderer/index.css" />
+    <style id="override"></style>
+    <script src="../../../../node_modules/@xterm/xterm/lib/xterm.js"></script>
+    <script src="../../../../node_modules/@xterm/addon-webgl/lib/addon-webgl.js"></script>
+  </head>
+  <body>
+    <div class="terminals" style="width: 800px; height: 500px">
+      <div class="terminal"></div>
+      <section class="tab-prompt">
+        <button id="trust">Trust and connect</button>
+        <button id="cancel">Cancel</button>
+      </section>
+      <div class="question"><button id="paste">Paste</button></div>
+      <div class="find"><input id="find" /></div>
+    </div>
+    <script>
+      const term = new Terminal();
+      term.open(document.querySelector('.terminal'));
+      term.loadAddon(new WebglAddon.WebglAddon());
+      // .question and .find sit at the same spot: test each one on its own.
+      const overlays = ['.tab-prompt', '.question', '.find'];
+      window.hit = () =>
+        ['trust', 'cancel', 'paste', 'find'].map((id) => {
+          const target = document.getElementById(id);
+          for (const o of overlays)
+            document.querySelector(o).style.display = document.querySelector(o).contains(target) ? '' : 'none';
+          const r = target.getBoundingClientRect();
+          const e = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+          return id + ' -> ' + (e === target ? 'hit' : e.tagName.toLowerCase() + '.' + e.className);
+        });
+    </script>
+  </body>
+</html>
