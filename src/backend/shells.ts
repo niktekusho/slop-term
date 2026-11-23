@@ -13,7 +13,7 @@ export async function detectShells(): Promise<Shell[]> {
       .map((kind) => ({ kind }));
   }
   const shells: Shell[] = [
-    { kind: findOnPath('pwsh.exe') ? 'pwsh' : 'powershell' },
+    { kind: pwshPath() ? 'pwsh' : 'powershell' },
     { kind: 'cmd' },
   ];
   for (const distro of await wslDistros()) shells.push({ kind: 'wsl', distro });
@@ -24,12 +24,25 @@ export function spawnLine(launch: Parameters<typeof launchLine>[0]) {
   const { args, cwd } = launchLine(launch);
   return {
     file:
-      process.platform === 'win32'
-        ? `${launch.kind}.exe`
-        : `/bin/${launch.kind}`,
+      process.platform !== 'win32'
+        ? `/bin/${launch.kind}`
+        : launch.kind === 'pwsh'
+          ? (pwshPath() ?? 'pwsh.exe')
+          : `${launch.kind}.exe`,
     args,
     cwd: cwd.replace(/^~(?=$|[\\/])/, homedir()),
   };
+}
+
+// PATH can list an older x86 install first: Windows Terminal picks the 64-bit install too.
+function pwshPath() {
+  const x64 = path.join(
+    process.env.ProgramFiles ?? '',
+    'PowerShell',
+    '7',
+    'pwsh.exe',
+  );
+  return existsSync(x64) ? x64 : findOnPath('pwsh.exe');
 }
 
 export function findOnPath(file: string) {

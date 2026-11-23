@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { eventually, startBackend } from './harness.ts';
 
@@ -31,6 +32,23 @@ describe('local shells', () => {
     } else {
       expect(shells).toContainEqual({ kind: 'bash' });
     }
+  });
+
+  it.runIf(
+    process.platform === 'win32' &&
+      existsSync(`${process.env.ProgramFiles}\\PowerShell\\7\\pwsh.exe`),
+  )('runs the 64-bit pwsh when PATH lists the x86 one first', async () => {
+    await harness.stop();
+    harness = await startBackend(undefined, {
+      PATH: `${process.env['ProgramFiles(x86)']}\\PowerShell\\7;${process.env.PATH}`,
+    });
+    const tab = await openFirstShell();
+    await harness.backend.write(tab, '"<$((Get-Process -Id $PID).Path)>"\r');
+    await eventually(() =>
+      expect(harness.output(tab)).toContain(
+        `<${process.env.ProgramFiles}\\PowerShell\\7\\pwsh.exe>`,
+      ),
+    );
   });
 
   it('opens the first shell and reads its output', async () => {
