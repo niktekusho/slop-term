@@ -1,0 +1,819 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-23T11:19:56.208Z",
+  "title": "Design System: slop-term",
+  "extensions": {
+    "colorMeta": {
+      "canvas": {
+        "role": "neutral",
+        "displayName": "canvas",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "#666666",
+          "#999999",
+          "#cccccc",
+          "#ffffff",
+          "#ffffff",
+          "#ffffff",
+          "#ffffff",
+          "#ffffff"
+        ]
+      },
+      "canvas-dark": {
+        "role": "neutral",
+        "displayName": "canvas-dark",
+        "canonical": "#0d1117",
+        "tonalRamp": [
+          "#050709",
+          "#080a0e",
+          "#0a0e12",
+          "#0d1117",
+          "#3d4145",
+          "#6e7074",
+          "#9ea0a2",
+          "#cfcfd1"
+        ]
+      },
+      "canvas-subtle": {
+        "role": "neutral",
+        "displayName": "canvas-subtle",
+        "canonical": "#f6f8fa",
+        "tonalRamp": [
+          "#626364",
+          "#949596",
+          "#c5c6c8",
+          "#f6f8fa",
+          "#f8f9fb",
+          "#fafbfc",
+          "#fbfcfd",
+          "#fdfefe"
+        ]
+      },
+      "canvas-subtle-dark": {
+        "role": "neutral",
+        "displayName": "canvas-subtle-dark",
+        "canonical": "#161b22",
+        "tonalRamp": [
+          "#090b0e",
+          "#0d1014",
+          "#12161b",
+          "#161b22",
+          "#45494e",
+          "#73767a",
+          "#a2a4a7",
+          "#d0d1d3"
+        ]
+      },
+      "overlay": {
+        "role": "neutral",
+        "displayName": "overlay",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "#666666",
+          "#999999",
+          "#cccccc",
+          "#ffffff",
+          "#ffffff",
+          "#ffffff",
+          "#ffffff",
+          "#ffffff"
+        ]
+      },
+      "overlay-dark": {
+        "role": "neutral",
+        "displayName": "overlay-dark",
+        "canonical": "#161b22",
+        "tonalRamp": [
+          "#090b0e",
+          "#0d1014",
+          "#12161b",
+          "#161b22",
+          "#45494e",
+          "#73767a",
+          "#a2a4a7",
+          "#d0d1d3"
+        ]
+      },
+      "fg": {
+        "role": "neutral",
+        "displayName": "fg",
+        "canonical": "#1f2328",
+        "tonalRamp": [
+          "#0c0e10",
+          "#131518",
+          "#191c20",
+          "#1f2328",
+          "#4c4f53",
+          "#797b7e",
+          "#a5a7a9",
+          "#d2d3d4"
+        ]
+      },
+      "fg-dark": {
+        "role": "neutral",
+        "displayName": "fg-dark",
+        "canonical": "#e6edf3",
+        "tonalRamp": [
+          "#5c5f61",
+          "#8a8e92",
+          "#b8bec2",
+          "#e6edf3",
+          "#ebf1f5",
+          "#f0f4f8",
+          "#f5f8fa",
+          "#fafbfd"
+        ]
+      },
+      "fg-muted": {
+        "role": "neutral",
+        "displayName": "fg-muted",
+        "canonical": "#656d76",
+        "tonalRamp": [
+          "#282c2f",
+          "#3d4147",
+          "#51575e",
+          "#656d76",
+          "#848a91",
+          "#a3a7ad",
+          "#c1c5c8",
+          "#e0e2e4"
+        ]
+      },
+      "fg-muted-dark": {
+        "role": "neutral",
+        "displayName": "fg-muted-dark",
+        "canonical": "#7d8590",
+        "tonalRamp": [
+          "#32353a",
+          "#4b5056",
+          "#646a73",
+          "#7d8590",
+          "#979da6",
+          "#b1b6bc",
+          "#cbced3",
+          "#e5e7e9"
+        ]
+      },
+      "faint": {
+        "role": "neutral",
+        "displayName": "faint",
+        "canonical": "#818b98",
+        "tonalRamp": [
+          "#34383d",
+          "#4d535b",
+          "#676f7a",
+          "#818b98",
+          "#9aa2ad",
+          "#b3b9c1",
+          "#cdd1d6",
+          "#e6e8ea"
+        ]
+      },
+      "faint-dark": {
+        "role": "neutral",
+        "displayName": "faint-dark",
+        "canonical": "#6e7681",
+        "tonalRamp": [
+          "#2c2f34",
+          "#42474d",
+          "#585e67",
+          "#6e7681",
+          "#8b919a",
+          "#a8adb3",
+          "#c5c8cd",
+          "#e2e4e6"
+        ]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "border",
+        "canonical": "#d0d7de",
+        "tonalRamp": [
+          "#535659",
+          "#7d8185",
+          "#a6acb2",
+          "#d0d7de",
+          "#d9dfe5",
+          "#e3e7eb",
+          "#eceff2",
+          "#f6f7f8"
+        ]
+      },
+      "border-dark": {
+        "role": "neutral",
+        "displayName": "border-dark",
+        "canonical": "#30363d",
+        "tonalRamp": [
+          "#131618",
+          "#1d2025",
+          "#262b31",
+          "#30363d",
+          "#595e64",
+          "#83868b",
+          "#acafb1",
+          "#d6d7d8"
+        ]
+      },
+      "button": {
+        "role": "neutral",
+        "displayName": "button",
+        "canonical": "#f6f8fa",
+        "tonalRamp": [
+          "#626364",
+          "#949596",
+          "#c5c6c8",
+          "#f6f8fa",
+          "#f8f9fb",
+          "#fafbfc",
+          "#fbfcfd",
+          "#fdfefe"
+        ]
+      },
+      "button-dark": {
+        "role": "neutral",
+        "displayName": "button-dark",
+        "canonical": "#21262d",
+        "tonalRamp": [
+          "#0d0f12",
+          "#14171b",
+          "#1a1e24",
+          "#21262d",
+          "#4d5157",
+          "#7a7d81",
+          "#a6a8ab",
+          "#d3d4d5"
+        ]
+      },
+      "button-hover": {
+        "role": "neutral",
+        "displayName": "button-hover",
+        "canonical": "#f3f4f6",
+        "tonalRamp": [
+          "#616262",
+          "#929294",
+          "#c2c3c5",
+          "#f3f4f6",
+          "#f5f6f8",
+          "#f8f8fa",
+          "#fafbfb",
+          "#fdfdfd"
+        ]
+      },
+      "button-hover-dark": {
+        "role": "neutral",
+        "displayName": "button-hover-dark",
+        "canonical": "#30363d",
+        "tonalRamp": [
+          "#131618",
+          "#1d2025",
+          "#262b31",
+          "#30363d",
+          "#595e64",
+          "#83868b",
+          "#acafb1",
+          "#d6d7d8"
+        ]
+      },
+      "teal": {
+        "role": "primary",
+        "displayName": "teal",
+        "canonical": "#1b7c83",
+        "tonalRamp": [
+          "#0b3234",
+          "#104a4f",
+          "#166369",
+          "#1b7c83",
+          "#49969c",
+          "#76b0b5",
+          "#a4cbcd",
+          "#d1e5e6"
+        ]
+      },
+      "teal-dark": {
+        "role": "primary",
+        "displayName": "teal-dark",
+        "canonical": "#39c5cf",
+        "tonalRamp": [
+          "#174f53",
+          "#22767c",
+          "#2e9ea6",
+          "#39c5cf",
+          "#61d1d9",
+          "#88dce2",
+          "#b0e8ec",
+          "#d7f3f5"
+        ]
+      },
+      "amber": {
+        "role": "primary",
+        "displayName": "amber",
+        "canonical": "#9a6700",
+        "tonalRamp": [
+          "#3e2900",
+          "#5c3e00",
+          "#7b5200",
+          "#9a6700",
+          "#ae8533",
+          "#c2a466",
+          "#d7c299",
+          "#ebe1cc"
+        ]
+      },
+      "amber-dark": {
+        "role": "primary",
+        "displayName": "amber-dark",
+        "canonical": "#d29922",
+        "tonalRamp": [
+          "#543d0e",
+          "#7e5c14",
+          "#a87a1b",
+          "#d29922",
+          "#dbad4e",
+          "#e4c27a",
+          "#edd6a7",
+          "#f6ebd3"
+        ]
+      },
+      "danger": {
+        "role": "neutral",
+        "displayName": "danger",
+        "canonical": "#d1242f",
+        "tonalRamp": [
+          "#540e13",
+          "#7d161c",
+          "#a71d26",
+          "#d1242f",
+          "#da5059",
+          "#e37c82",
+          "#eda7ac",
+          "#f6d3d5"
+        ]
+      },
+      "danger-dark": {
+        "role": "neutral",
+        "displayName": "danger-dark",
+        "canonical": "#f85149",
+        "tonalRamp": [
+          "#63201d",
+          "#95312c",
+          "#c6413a",
+          "#f85149",
+          "#f9746d",
+          "#fb9792",
+          "#fcb9b6",
+          "#fedcdb"
+        ]
+      },
+      "success": {
+        "role": "neutral",
+        "displayName": "success",
+        "canonical": "#1a7f37",
+        "tonalRamp": [
+          "#0a3316",
+          "#104c21",
+          "#15662c",
+          "#1a7f37",
+          "#48995f",
+          "#76b287",
+          "#a3ccaf",
+          "#d1e5d7"
+        ]
+      },
+      "success-dark": {
+        "role": "neutral",
+        "displayName": "success-dark",
+        "canonical": "#3fb950",
+        "tonalRamp": [
+          "#194a20",
+          "#266f30",
+          "#329440",
+          "#3fb950",
+          "#65c773",
+          "#8cd596",
+          "#b2e3b9",
+          "#d9f1dc"
+        ]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "accent",
+        "canonical": "#1f883d",
+        "tonalRamp": [
+          "#0c3618",
+          "#135225",
+          "#196d31",
+          "#1f883d",
+          "#4ca064",
+          "#79b88b",
+          "#a5cfb1",
+          "#d2e7d8"
+        ]
+      },
+      "accent-dark": {
+        "role": "primary",
+        "displayName": "accent-dark",
+        "canonical": "#238636",
+        "tonalRamp": [
+          "#0e3616",
+          "#155020",
+          "#1c6b2b",
+          "#238636",
+          "#4f9e5e",
+          "#7bb686",
+          "#a7cfaf",
+          "#d3e7d7"
+        ]
+      },
+      "session-red": {
+        "role": "tertiary",
+        "displayName": "session-red",
+        "canonical": "#ce2c31",
+        "tonalRamp": [
+          "#521214",
+          "#7c1a1d",
+          "#a52327",
+          "#ce2c31",
+          "#d8565a",
+          "#e28083",
+          "#ebabad",
+          "#f5d5d6"
+        ]
+      },
+      "session-red-dark": {
+        "role": "tertiary",
+        "displayName": "session-red-dark",
+        "canonical": "#e5484d",
+        "tonalRamp": [
+          "#5c1d1f",
+          "#892b2e",
+          "#b73a3e",
+          "#e5484d",
+          "#ea6d71",
+          "#ef9194",
+          "#f5b6b8",
+          "#fadadb"
+        ]
+      },
+      "session-orange": {
+        "role": "tertiary",
+        "displayName": "session-orange",
+        "canonical": "#c2490c",
+        "tonalRamp": [
+          "#4e1d05",
+          "#742c07",
+          "#9b3a0a",
+          "#c2490c",
+          "#ce6d3d",
+          "#da926d",
+          "#e7b69e",
+          "#f3dbce"
+        ]
+      },
+      "session-orange-dark": {
+        "role": "tertiary",
+        "displayName": "session-orange-dark",
+        "canonical": "#f76b15",
+        "tonalRamp": [
+          "#632b08",
+          "#94400d",
+          "#c65611",
+          "#f76b15",
+          "#f98944",
+          "#faa673",
+          "#fcc4a1",
+          "#fde1d0"
+        ]
+      },
+      "session-yellow": {
+        "role": "tertiary",
+        "displayName": "session-yellow",
+        "canonical": "#946800",
+        "tonalRamp": [
+          "#3b2a00",
+          "#593e00",
+          "#765300",
+          "#946800",
+          "#a98633",
+          "#bfa466",
+          "#d4c399",
+          "#eae1cc"
+        ]
+      },
+      "session-yellow-dark": {
+        "role": "tertiary",
+        "displayName": "session-yellow-dark",
+        "canonical": "#f5d90a",
+        "tonalRamp": [
+          "#625704",
+          "#938206",
+          "#c4ae08",
+          "#f5d90a",
+          "#f7e13b",
+          "#f9e86c",
+          "#fbf09d",
+          "#fdf7ce"
+        ]
+      },
+      "session-green": {
+        "role": "tertiary",
+        "displayName": "session-green",
+        "canonical": "#2a7e3b",
+        "tonalRamp": [
+          "#113218",
+          "#194c23",
+          "#22652f",
+          "#2a7e3b",
+          "#559862",
+          "#7fb289",
+          "#aacbb1",
+          "#d4e5d8"
+        ]
+      },
+      "session-green-dark": {
+        "role": "tertiary",
+        "displayName": "session-green-dark",
+        "canonical": "#46a758",
+        "tonalRamp": [
+          "#1c4323",
+          "#2a6435",
+          "#388646",
+          "#46a758",
+          "#6bb979",
+          "#90ca9b",
+          "#b5dcbc",
+          "#daedde"
+        ]
+      },
+      "session-blue": {
+        "role": "tertiary",
+        "displayName": "session-blue",
+        "canonical": "#1f5fd6",
+        "tonalRamp": [
+          "#0c2656",
+          "#133980",
+          "#194cab",
+          "#1f5fd6",
+          "#4c7fde",
+          "#799fe6",
+          "#a5bfef",
+          "#d2dff7"
+        ]
+      },
+      "session-blue-dark": {
+        "role": "tertiary",
+        "displayName": "session-blue-dark",
+        "canonical": "#3e8bff",
+        "tonalRamp": [
+          "#193866",
+          "#255399",
+          "#326fcc",
+          "#3e8bff",
+          "#65a2ff",
+          "#8bb9ff",
+          "#b2d1ff",
+          "#d8e8ff"
+        ]
+      },
+      "session-purple": {
+        "role": "tertiary",
+        "displayName": "session-purple",
+        "canonical": "#7a3fc6",
+        "tonalRamp": [
+          "#31194f",
+          "#492677",
+          "#62329e",
+          "#7a3fc6",
+          "#9565d1",
+          "#af8cdd",
+          "#cab2e8",
+          "#e4d9f4"
+        ]
+      },
+      "session-purple-dark": {
+        "role": "tertiary",
+        "displayName": "session-purple-dark",
+        "canonical": "#a06cf0",
+        "tonalRamp": [
+          "#402b60",
+          "#604190",
+          "#8056c0",
+          "#a06cf0",
+          "#b389f3",
+          "#c6a7f6",
+          "#d9c4f9",
+          "#ece2fc"
+        ]
+      },
+      "session-pink": {
+        "role": "tertiary",
+        "displayName": "session-pink",
+        "canonical": "#c0237f",
+        "tonalRamp": [
+          "#4d0e33",
+          "#73154c",
+          "#9a1c66",
+          "#c0237f",
+          "#cd4f99",
+          "#d97bb2",
+          "#e6a7cc",
+          "#f2d3e5"
+        ]
+      },
+      "session-pink-dark": {
+        "role": "tertiary",
+        "displayName": "session-pink-dark",
+        "canonical": "#e5469f",
+        "tonalRamp": [
+          "#5c1c40",
+          "#892a5f",
+          "#b7387f",
+          "#e5469f",
+          "#ea6bb2",
+          "#ef90c5",
+          "#f5b5d9",
+          "#fadaec"
+        ]
+      },
+      "session-grey": {
+        "role": "tertiary",
+        "displayName": "session-grey",
+        "canonical": "#60646c",
+        "tonalRamp": [
+          "#26282b",
+          "#3a3c41",
+          "#4d5056",
+          "#60646c",
+          "#808389",
+          "#a0a2a7",
+          "#bfc1c4",
+          "#dfe0e2"
+        ]
+      },
+      "session-grey-dark": {
+        "role": "tertiary",
+        "displayName": "session-grey-dark",
+        "canonical": "#8b8d98",
+        "tonalRamp": [
+          "#38383d",
+          "#53555b",
+          "#6f717a",
+          "#8b8d98",
+          "#a2a4ad",
+          "#b9bbc1",
+          "#d1d1d6",
+          "#e8e8ea"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "body": {
+        "displayName": "Body",
+        "purpose": "Rows, labels, buttons, fields."
+      },
+      "small": {
+        "displayName": "Small",
+        "purpose": "SFTP pane, find bar, dense dialogs."
+      },
+      "caption": {
+        "displayName": "Caption",
+        "purpose": "Group labels, transfer status."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Login and host key question headings."
+      },
+      "dialog-title": {
+        "displayName": "Dialog title",
+        "purpose": "Dialog headings."
+      },
+      "group-label": {
+        "displayName": "Group label",
+        "purpose": "Uppercase tree group headers."
+      },
+      "code": {
+        "displayName": "Code",
+        "purpose": "Commands, paths, fingerprints."
+      }
+    },
+    "shadows": [
+      {
+        "name": "floating",
+        "value": "0 8px 24px var(--shadow)",
+        "purpose": "Menus, dialogs, popovers, find bar."
+      }
+    ],
+    "motion": [],
+    "breakpoints": []
+  },
+  "components": [
+    {
+      "name": "Button",
+      "kind": "button",
+      "refersTo": "button",
+      "description": "Default grey control.",
+      "html": "<button class=\"ds-btn\">Cancel</button>",
+      "css": ".ds-btn{font:13px system-ui,sans-serif;padding:3px 12px;border-radius:6px;border:1px solid rgb(31 35 40 / 15%);background:#f6f8fa;color:#1f2328}.ds-btn:hover{background:#f3f4f6}.ds-btn:focus-visible{outline:2px solid #1f883d}"
+    },
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one main action in a dialog.",
+      "html": "<button class=\"ds-btn-primary\">Save</button>",
+      "css": ".ds-btn-primary{font:13px system-ui,sans-serif;padding:3px 12px;border-radius:6px;border:1px solid rgb(31 35 40 / 15%);border-color:transparent;background:#1f883d;color:#fff}.ds-btn-primary:hover{filter:brightness(1.1)}.ds-btn-primary:focus-visible{outline:2px solid #1f883d;outline-offset:2px}"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Destructive confirmation.",
+      "html": "<button class=\"ds-btn-danger\">Delete</button>",
+      "css": ".ds-btn-danger{font:13px system-ui,sans-serif;padding:3px 12px;border-radius:6px;border:1px solid rgb(31 35 40 / 15%);border-color:transparent;background:#d1242f;color:#fff}.ds-btn-danger:focus-visible{outline:2px solid #d1242f;outline-offset:2px}"
+    },
+    {
+      "name": "Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Text field.",
+      "html": "<input class=\"ds-input\" placeholder=\"Host name\">",
+      "css": ".ds-input{font:13px system-ui,sans-serif;padding:3px 6px;border:1px solid #d0d7de;border-radius:6px;background:#fff;color:#1f2328}.ds-input::placeholder{color:#818b98}.ds-input:focus-visible{outline:2px solid #1f883d}"
+    },
+    {
+      "name": "Session Tree Row",
+      "kind": "nav",
+      "refersTo": "tree-row",
+      "description": "22px row with a type mark; teal for SSH, amber for Local shell.",
+      "html": "<div class=\"ds-tree\"><div class=\"ds-row\"><span class=\"ds-edge\"></span><span class=\"ds-name\">prod-db-01</span><span class=\"ds-detail\">ssh</span></div><div class=\"ds-row ds-cur\"><span class=\"ds-edge ds-local\"></span><span class=\"ds-name\">pwsh</span><span class=\"ds-detail\">local</span></div></div>",
+      "css": ".ds-tree{width:240px;background:#f6f8fa;font:13px system-ui,sans-serif;color:#1f2328}.ds-row{display:flex;align-items:center;gap:6px;height:22px;padding:0 8px}.ds-row:hover{background:rgb(208 215 222 / 32%)}.ds-cur{background:rgb(208 215 222 / 48%)}.ds-edge{width:3px;height:14px;border-radius:2px;background:#1b7c83}.ds-local{background:#9a6700}.ds-name{flex:1}.ds-detail{color:#656d76}"
+    },
+    {
+      "name": "Menu",
+      "kind": "card",
+      "refersTo": "menu",
+      "description": "Floating menu with keyboard hints.",
+      "html": "<div class=\"ds-menu\"><div>Open<span>Enter</span></div><div>Rename<span>F2</span></div><hr><div class=\"ds-d\">Delete</div></div>",
+      "css": ".ds-menu{min-width:160px;padding:4px 0;background:#fff;border:1px solid #d0d7de;border-radius:6px;box-shadow:0 8px 24px rgb(140 149 159 / 20%);font:13px system-ui,sans-serif;color:#1f2328}.ds-menu div{display:flex;gap:16px;height:22px;padding:0 12px;align-items:center}.ds-menu div:hover{background:rgb(208 215 222 / 32%)}.ds-menu span{margin-left:auto;color:#818b98}.ds-menu hr{margin:4px 0;border:0;border-top:1px solid #d0d7de}.ds-d{color:#d1242f}"
+    },
+    {
+      "name": "Header Bar",
+      "kind": "custom",
+      "refersTo": "session-blue",
+      "description": "Tab header tinted by a Session colour, with black or white text.",
+      "html": "<div class=\"ds-header\"><b>prod-db-01</b><span>/var/log</span></div>",
+      "css": ".ds-header{display:flex;gap:8px;align-items:center;height:28px;padding:0 12px;background:#1f5fd6;color:#fff;font:13px system-ui,sans-serif}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Colour-Coded Switchboard",
+    "overview": "slop-term is a panel for many hosts at once. The chrome is grey and stays still. Colour is how you tell hosts apart: each Session can carry one of eight Session colours, and that colour tints the terminal, the header bar and the SFTP pane. Everything else is neutral, so a coloured Tab is the loudest thing on screen.\n\nThe look is compact. Rows are 22px, text is 13px, and borders are 1px. The user lives in this window all day, so density and speed come before decoration. The palette is GitHub Primer, in a light and a dark mode that follow the operating system or a setting.\n\nConfirmed rejection: the app must not feel like a website. No large rounded cards, big padding or web-style toasts.",
+    "keyCharacteristics": [
+      "Grey chrome, with colour reserved for Session colours and for state (error, warning, success).",
+      "Dense rows (22px) and small text (11 to 13px).",
+      "Flat at rest. Shadows only on layers that float above the window.",
+      "Light and dark modes use one token set, switched by `light-dark()`.",
+      "No Tab strip. Open Tabs are listed in the tree under their Saved session."
+    ],
+    "rules": [
+      {
+        "name": "The Session Colour Rule",
+        "body": "Session colours are the only decorative colour. Chrome never uses a hue for style alone.",
+        "section": "colors"
+      },
+      {
+        "name": "The State Colour Rule",
+        "body": "Red means error or destructive, amber means warning, green means success or the main action. Do not reuse them as decoration.",
+        "section": "colors"
+      },
+      {
+        "name": "The Contrast Rule",
+        "body": "Text over a Session colour is black or white, whichever contrasts more. Dimming is not applied there, so the contrast floor holds.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tabular Rule",
+        "body": "Sizes, times and counts use `font-variant-numeric: tabular-nums` so columns line up.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat-At-Rest Rule",
+        "body": "Nothing carries a shadow until it floats above other content.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do keep chrome neutral and let the Session colour be the loudest colour in the window.",
+      "Do use 22px rows, 13px text and 1px borders for new list and form screens.",
+      "Do take every colour from the tokens above, using `var(--name)` so light and dark both work.",
+      "Do put one green primary button in a dialog and make danger actions red only when destructive.",
+      "Do show hover-only controls (like the row `+`) on keyboard focus as well.",
+      "Do use monospace for commands, paths and fingerprints."
+    ],
+    "donts": [
+      "Don't make a screen feel like a website: no large rounded cards, oversized padding, hero blocks or web-style toasts.",
+      "Don't add a Tab strip. Open Tabs live in the tree.",
+      "Don't use a hue for decoration. Colour means a Session, or a state.",
+      "Don't put a shadow on anything that does not float above the window.",
+      "Don't dim or tint text placed on a Session colour; use plain black or white."
+    ]
+  }
+}
